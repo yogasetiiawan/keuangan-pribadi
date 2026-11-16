@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="KeuanganKu" />
+  <link rel="manifest" href="/app/manifest.json" />
+  <title>Keuangan Pribadi (iOS PWA + Laravel + Google Sheets)</title>
+  <style>
+    :root {
+      --bg: #F8FAFC;
+      --card: #FFFFFF;
+      --text: #0F172A;
+      --muted: #64748B;
+      --border: #E2E8F0;
+      --income: #10B981;
+      --expense: #EF4444;
+      --primary: #0F172A;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      padding-bottom: 95px;
+    }
+    .app-shell {
+      max-width: 480px;
+      margin: 0 auto;
+      min-height: 100vh;
+    }
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      background: rgba(255,255,255,0.92);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      padding: 14px 18px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .brand { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 17px; }
+    .brand-icon {
+      width: 34px; height: 34px; border-radius: 10px;
+      background: var(--primary); color: #fff;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 16px;
+    }
+    .container { padding: 16px 18px; }
+    .row-between { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .month-picker {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: #fff; border: 1px solid var(--border);
+      border-radius: 14px; padding: 5px 10px; font-weight: 700; font-size: 13.5px;
+    }
+    .month-picker button {
+      border: none; background: transparent; cursor: pointer;
+      font-size: 15px; padding: 4px 6px; color: var(--text);
+    }
+    .sync-badge {
+      border: 1px solid #A7F3D0; background: #ECFDF5; color: #059669;
+      padding: 8px 12px; border-radius: 14px; font-size: 12.5px; font-weight: 700;
+      cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
+    }
+    .sync-badge.warn {
+      border-color: #FDE68A; background: #FFFBEB; color: #D97706;
+    }
+    .wallet-card {
+      margin-top: 14px;
+      background: linear-gradient(135deg, #0F172A 0%, #1E293B 100%);
+      color: #fff;
+      border-radius: 24px;
+      padding: 22px;
+      box-shadow: 0 12px 24px rgba(15,23,42,0.18);
+    }
+    .wallet-label { color: #94A3B8; font-size: 13px; }
+    .wallet-balance { font-size: 29px; font-weight: 800; margin: 6px 0 18px; letter-spacing: -0.5px; }
+    .wallet-stats {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+      background: rgba(255,255,255,0.07);
+      padding: 13px; border-radius: 16px;
+    }
+    .stat-box small { color: #94A3B8; font-size: 11px; display: block; }
+    .stat-box strong { font-size: 14px; margin-top: 3px; display: block; }
+    .stat-inc strong { color: #34D399; }
+    .stat-exp strong { color: #F87171; }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 18px;
+      margin-top: 16px;
+    }
+    .card-title { font-size: 15.5px; font-weight: 700; margin-bottom: 14px; }
+    .bar-chart {
+      display: flex; align-items: flex-end; justify-content: space-around;
+      height: 150px; padding-top: 14px; gap: 8px;
+    }
+    .bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; height: 100%; justify-content: flex-end; }
+    .bar-pair { display: flex; align-items: flex-end; gap: 4px; height: 118px; }
+    .bar { width: 11px; border-radius: 6px; transition: height 0.3s ease; min-height: 4px; }
+    .bar.inc { background: var(--income); }
+    .bar.exp { background: var(--expense); }
+    .bar-lbl { font-size: 11.5px; color: var(--muted); font-weight: 600; margin-top: 6px; }
+    .cat-row { margin-bottom: 12px; }
+    .cat-header { display: flex; justify-content: space-between; font-size: 13.5px; font-weight: 600; margin-bottom: 5px; }
+    .progress-track { height: 7px; background: #F1F5F9; border-radius: 4px; overflow: hidden; }
+    .progress-fill { height: 100%; border-radius: 4px; }
+    .trx-item {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 0; border-bottom: 1px solid #F1F5F9;
+    }
+    .trx-item:last-child { border-bottom: none; }
+    .trx-left { display: flex; align-items: center; gap: 12px; }
+    .trx-dot {
+      width: 40px; height: 40px; border-radius: 12px;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 700; font-size: 15px;
+    }
+    .trx-title { font-weight: 700; font-size: 14px; }
+    .trx-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .trx-amount { font-weight: 800; font-size: 14px; text-align: right; }
+    .trx-amount.income { color: var(--income); }
+    .trx-amount.expense { color: var(--expense); }
+    .del-btn {
+      border: none; background: transparent; color: #94A3B8;
+      cursor: pointer; font-size: 16px; margin-left: 8px;
+    }
+    .fab {
+      position: fixed; right: 20px; bottom: 82px; z-index: 30;
+      background: var(--primary); color: #fff; border: none;
+      padding: 14px 20px; border-radius: 999px; font-weight: 700; font-size: 14.5px;
+      box-shadow: 0 8px 20px rgba(15,23,42,0.28); cursor: pointer;
+    }
+    nav.bottom-nav {
+      position: fixed; bottom: 0; left: 0; right: 0; z-index: 25;
+      background: rgba(255,255,255,0.96);
+      backdrop-filter: blur(12px);
+      border-top: 1px solid var(--border);
+      display: flex; justify-content: space-around;
+      padding: 8px 0 calc(8px + env(safe-area-inset-bottom));
+      max-width: 480px; margin: 0 auto;
+    }
+    nav.bottom-nav button {
+      border: none; background: transparent; color: var(--muted);
+      font-size: 11.5px; font-weight: 600; cursor: pointer;
+      display: flex; flex-direction: column; align-items: center; gap: 3px;
+      padding: 4px 14px; border-radius: 12px;
+    }
+    nav.bottom-nav button.active { color: var(--primary); font-weight: 800; }
+    .modal-backdrop {
+      position: fixed; inset: 0; background: rgba(15,23,42,0.45);
+      display: none; align-items: flex-end; justify-content: center; z-index: 50;
+    }
+    .modal-backdrop.open { display: flex; }
+    .modal-sheet {
+      background: #fff; width: 100%; max-width: 480px;
+      border-radius: 26px 26px 0 0; padding: 20px;
+      max-height: 90vh; overflow-y: auto;
+    }
+    .segmented {
+      display: grid; grid-template-columns: 1fr 1fr;
+      background: #F1F5F9; padding: 4px; border-radius: 12px; margin: 12px 0;
+    }
+    .segmented button {
+      border: none; background: transparent; padding: 10px;
+      border-radius: 9px; font-weight: 700; cursor: pointer;
+    }
+    .segmented button.active.expense { background: var(--expense); color: #fff; }
+    .segmented button.active.income { background: var(--income); color: #fff; }
+    .form-group { margin-bottom: 14px; }
+    .form-group label { display: block; font-size: 12.5px; font-weight: 600; color: var(--muted); margin-bottom: 6px; }
+    .form-group input, .form-group select {
+      width: 100%; padding: 12px 14px; border-radius: 12px;
+      border: 1px solid var(--border); font-size: 15px; background: #F8FAFC;
+    }
+    .btn-primary {
+      width: 100%; padding: 14px; border-radius: 14px; border: none;
+      background: var(--primary); color: #fff; font-weight: 700; font-size: 15px; cursor: pointer;
+    }
+    .tab-page { display: none; }
+    .tab-page.active { display: block; }
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+    <header>
+      <div class="brand">
+        <div class="brand-icon">Rp</div>
+        <span id="headerTitle">Ringkasan Keuangan</span>
+      </div>
+      <button onclick="loadAll()" style="border:none;background:#F1F5F9;padding:8px 12px;border-radius:10px;font-weight:600;cursor:pointer;">↻ Refresh</button>
+    </header>
+
+    <div class="container">
+      <!-- TAB 1: DASHBOARD -->
+      <div id="tab-dashboard" class="tab-page active">
+        <div class="row-between">
+          <div class="month-picker">
+            <button onclick="changeMonth(-1)">‹</button>
+            <span id="monthLabel">November 2026</span>
+            <button onclick="changeMonth(1)">›</button>
+          </div>
+          <button id="syncBtn" class="sync-badge" onclick="syncSheets()">⇄ Sync Sheets</button>
+        </div>
+
+        <div class="wallet-card">
+          <div class="wallet-label">Total Saldo Bersih</div>
+          <div class="wallet-balance" id="totalBalance">Rp 0</div>
+          <div class="wallet-stats">
+            <div class="stat-box stat-inc">
+              <small>↓ Pemasukan Bulan Ini</small>
+              <strong id="monthlyIncome">Rp 0</strong>
+            </div>
+            <div class="stat-box stat-exp">
+              <small>↑ Pengeluaran Bulan Ini</small>
+              <strong id="monthlyExpense">Rp 0</strong>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">Tren 6 Bulan Terakhir</div>
+          <div id="barChart" class="bar-chart"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">Pengeluaran per Kategori</div>
+          <div id="categoryBreakdown"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">Transaksi Terbaru</div>
+          <div id="recentTransactions"></div>
+        </div>
+      </div>
+
+      <!-- TAB 2: SEMUA TRANSAKSI -->
+      <div id="tab-transactions" class="tab-page">
+        <div class="card" style="margin-top:0;">
+          <div class="card-title">Riwayat Transaksi Bulan Ini</div>
+          <div id="allTransactions"></div>
+        </div>
+      </div>
+
+      <!-- TAB 3: PENGATURAN GOOGLE SHEETS -->
+      <div id="tab-settings" class="tab-page">
+        <div class="card" style="margin-top:0;">
+          <div class="card-title">Integrasi Google Sheets</div>
+          <p style="font-size:12.5px;color:#64748B;margin-bottom:14px;line-height:1.5;">
+            Tempelkan URL Web App dari <b>google-sheets-connector/Code.gs</b> agar setiap pencatatan otomatis tersinkron ke Google Sheet Anda.
+          </p>
+          <div class="form-group">
+            <label>Google Apps Script Web App URL</label>
+            <input type="url" id="webhookUrlInput" placeholder="https://script.google.com/macros/s/.../exec" />
+          </div>
+          <div class="form-group">
+            <label>Spreadsheet ID (Opsional untuk API v4)</label>
+            <input type="text" id="spreadsheetIdInput" placeholder="1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms" />
+          </div>
+          <div class="form-group">
+            <label>Nama Sheet / Tab</label>
+            <input type="text" id="tabNameInput" value="Transaksi" />
+          </div>
+          <button class="btn-primary" onclick="saveSettings()">Simpan Pengaturan</button>
+          <button class="btn-primary" style="margin-top:10px;background:#10B981;" onclick="syncSheets()">Sinkronkan Semua Data ke Google Sheets</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <button class="fab" onclick="openModal()">+ Catat Transaksi</button>
+
+  <nav class="bottom-nav">
+    <button class="active" id="nav-dashboard" onclick="switchTab('dashboard')">
+      <span>📊</span><span>Dashboard</span>
+    </button>
+    <button id="nav-transactions" onclick="switchTab('transactions')">
+      <span>📋</span><span>Transaksi</span>
+    </button>
+    <button id="nav-settings" onclick="switchTab('settings')">
+      <span>⚙️</span><span>Google Sheets</span>
+    </button>
+  </nav>
+
+  <!-- MODAL TAMBAH TRANSAKSI -->
+  <div class="modal-backdrop" id="trxModal">
+    <div class="modal-sheet">
+      <div class="row-between">
+        <h3 style="font-size:18px;font-weight:800;">Catat Transaksi Baru</h3>
+        <button onclick="closeModal()" style="border:none;background:transparent;font-size:20px;cursor:pointer;">✕</button>
+      </div>
+      <div class="segmented">
+        <button id="btnTypeExp" class="active expense" onclick="setTrxType('expense')">Pengeluaran</button>
+        <button id="btnTypeInc" class="income" onclick="setTrxType('income')">Pemasukan</button>
+      </div>
+      <div class="form-group">
+        <label>Nominal (Rp)</label>
+        <input type="number" id="trxAmount" placeholder="Contoh: 150000" />
+      </div>
+      <div class="form-group">
+        <label>Kategori</label>
+        <select id="trxCategory"></select>
+      </div>
+      <div class="form-group">
+        <label>Tanggal</label>
+        <input type="date" id="trxDate" />
+      </div>
+      <div class="form-group">
+        <label>Catatan / Keterangan</label>
+        <input type="text" id="trxDesc" placeholder="Makan siang, Gaji, Tagihan..." />
+      </div>
+      <button class="btn-primary" onclick="submitTransaction()">Simpan & Sinkronkan</button>
+    </div>
+  </div>
+
+  <script>
+    const MONTHS = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+    let curMonth = new Date().getMonth() + 1;
+    let curYear = new Date().getFullYear();
+    let categories = [];
+    let currentTrxType = 'expense';
+
+    function formatRp(num) {
+      const n = Math.round(Number(num) || 0);
+      return 'Rp ' + n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+    }
+
+    function switchTab(tab) {
+      document.querySelectorAll('.tab-page').forEach(el => el.classList.remove('active'));
+      document.querySelectorAll('nav.bottom-nav button').forEach(el => el.classList.remove('active'));
+      document.getElementById('tab-' + tab).classList.add('active');
+      document.getElementById('nav-' + tab).classList.add('active');
+      const titles = { dashboard: 'Ringkasan Keuangan', transactions: 'Riwayat Transaksi', settings: 'Pengaturan Google Sheets' };
+      document.getElementById('headerTitle').textContent = titles[tab];
+    }
+
+    function changeMonth(delta) {
+      curMonth += delta;
+      if (curMonth < 1) { curMonth = 12; curYear--; }
+      if (curMonth > 12) { curMonth = 1; curYear++; }
+      loadAll();
+    }
+
+    async function loadAll() {
+      document.getElementById('monthLabel').textContent = MONTHS[curMonth - 1] + ' ' + curYear;
+      const [dashRes, catRes, trxRes, setRes] = await Promise.all([
+        fetch(`/api/dashboard?month=${curMonth}&year=${curYear}`).then(r => r.json()),
+        fetch('/api/categories').then(r => r.json()),
+        fetch(`/api/transactions?month=${curMonth}&year=${curYear}`).then(r => r.json()),
+        fetch('/api/settings').then(r => r.json())
+      ]);
+
+      if (catRes.success) {
+        categories = catRes.data;
+        renderCategoryOptions();
+      }
+
+      if (dashRes.success) {
+        const d = dashRes.data;
+        document.getElementById('totalBalance').textContent = formatRp(d.total_balance);
+        document.getElementById('monthlyIncome').textContent = formatRp(d.monthly_income);
+        document.getElementById('monthlyExpense').textContent = formatRp(d.monthly_expense);
+
+        const syncBtn = document.getElementById('syncBtn');
+        if (d.google_sheets.configured) {
+          syncBtn.className = 'sync-badge';
+          syncBtn.textContent = '✓ Sync Sheets';
+        } else {
+          syncBtn.className = 'sync-badge warn';
+          syncBtn.textContent = '⚙ Setup Sheets';
+        }
+
+        renderBarChart(d.monthly_chart || []);
+        renderBreakdown(d.category_breakdown || []);
+        renderTransactions(d.recent_transactions || [], 'recentTransactions');
+      }
+
+      if (trxRes.success) {
+        renderTransactions(trxRes.data || [], 'allTransactions');
+      }
+
+      if (setRes.success) {
+        document.getElementById('webhookUrlInput').value = setRes.data.google_sheets_webhook_url || '';
+        document.getElementById('spreadsheetIdInput').value = setRes.data.google_sheets_spreadsheet_id || '';
+        document.getElementById('tabNameInput').value = setRes.data.google_sheets_tab_name || 'Transaksi';
+      }
+    }
+
+    function renderBarChart(points) {
+      const el = document.getElementById('barChart');
+      let max = 1;
+      points.forEach(p => { if (p.income > max) max = p.income; if (p.expense > max) max = p.expense; });
+      el.innerHTML = points.map(p => {
+        const ih = Math.max(4, Math.round((p.income / max) * 110));
+        const eh = Math.max(4, Math.round((p.expense / max) * 110));
+        return `<div class="bar-col">
+          <div class="bar-pair">
+            <div class="bar inc" style="height:${ih}px" title="Masuk: ${formatRp(p.income)}"></div>
+            <div class="bar exp" style="height:${eh}px" title="Keluar: ${formatRp(p.expense)}"></div>
+          </div>
+          <div class="bar-lbl">${p.label}</div>
+        </div>`;
+      }).join('');
+    }
+
+    function renderBreakdown(items) {
+      const el = document.getElementById('categoryBreakdown');
+      if (!items.length) {
+        el.innerHTML = '<p style="color:#94A3B8;font-size:13px;">Belum ada pengeluaran bulan ini</p>';
+        return;
+      }
+      el.innerHTML = items.map(item => `
+        <div class="cat-row">
+          <div class="cat-header">
+            <span>${item.category_name} (${item.percentage}%)</span>
+            <span>${formatRp(item.amount)}</span>
+          </div>
+          <div class="progress-track">
+            <div class="progress-fill" style="width:${item.percentage}%;background:${item.color};"></div>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function renderTransactions(list, targetId) {
+      const el = document.getElementById(targetId);
+      if (!list.length) {
+        el.innerHTML = '<p style="color:#94A3B8;font-size:13px;">Belum ada transaksi</p>';
+        return;
+      }
+      el.innerHTML = list.map(t => {
+        const isInc = t.type === 'income';
+        const color = (t.category && t.category.color) ? t.category.color : (isInc ? '#10B981' : '#EF4444');
+        const catName = (t.category && t.category.name) ? t.category.name : 'Lainnya';
+        return `<div class="trx-item">
+          <div class="trx-left">
+            <div class="trx-dot" style="background:${color}22;color:${color};">${isInc ? '↓' : '↑'}</div>
+            <div>
+              <div class="trx-title">${t.description || catName}</div>
+              <div class="trx-sub">${catName} • ${t.transaction_date} ${t.is_synced_to_sheet ? '✓' : ''}</div>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;">
+            <div class="trx-amount ${t.type}">${isInc ? '+' : '-'}${formatRp(t.amount)}</div>
+            <button class="del-btn" onclick="deleteTrx(${t.id})" title="Hapus">🗑</button>
+          </div>
+        </div>`;
+      }).join('');
+    }
+
+    function setTrxType(type) {
+      currentTrxType = type;
+      document.getElementById('btnTypeExp').classList.toggle('active', type === 'expense');
+      document.getElementById('btnTypeInc').classList.toggle('active', type === 'income');
+      renderCategoryOptions();
+    }
+
+    function renderCategoryOptions() {
+      const sel = document.getElementById('trxCategory');
+      const filtered = categories.filter(c => c.type === currentTrxType);
+      sel.innerHTML = filtered.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+    }
+
+    function openModal() {
+      document.getElementById('trxDate').value = new Date().toISOString().slice(0, 10);
+      document.getElementById('trxAmount').value = '';
+      document.getElementById('trxDesc').value = '';
+      renderCategoryOptions();
+      document.getElementById('trxModal').classList.add('open');
+    }
+
+    function closeModal() {
+      document.getElementById('trxModal').classList.remove('open');
+    }
+
+    async function submitTransaction() {
+      const amount = Number(document.getElementById('trxAmount').value);
+      const category_id = Number(document.getElementById('trxCategory').value) || null;
+      const transaction_date = document.getElementById('trxDate').value;
+      const description = document.getElementById('trxDesc').value;
+      if (!amount || amount <= 0) { alert('Masukkan nominal yang valid'); return; }
+
+      await fetch('/api/transactions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: currentTrxType, amount, category_id, transaction_date, description })
+      });
+      closeModal();
+      loadAll();
+    }
+
+    async function deleteTrx(id) {
+      if (!confirm('Hapus transaksi ini?')) return;
+      await fetch(`/api/transactions/${id}`, { method: 'DELETE' });
+      loadAll();
+    }
+
+    async function saveSettings() {
+      const google_sheets_webhook_url = document.getElementById('webhookUrlInput').value;
+      const google_sheets_spreadsheet_id = document.getElementById('spreadsheetIdInput').value;
+      const google_sheets_tab_name = document.getElementById('tabNameInput').value;
+      await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ google_sheets_webhook_url, google_sheets_spreadsheet_id, google_sheets_tab_name })
+      });
+      alert('Pengaturan berhasil disimpan!');
+      loadAll();
+    }
+
+    async function syncSheets() {
+      const res = await fetch('/api/sync-sheets', { method: 'POST' }).then(r => r.json());
+      if (!res.success) {
+        switchTab('settings');
+        alert(res.message || 'Silakan isi URL Google Apps Script terlebih dahulu.');
+      } else {
+        alert(res.message || 'Sinkronisasi berhasil!');
+        loadAll();
+      }
+    }
+
+    loadAll();
+  </script>
+</body>
+</html>

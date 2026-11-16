@@ -1,0 +1,30 @@
+workflows:
+  ios-release-workflow:
+    name: Build iOS Keuangan Pribadi (tanpa Mac)
+    max_build_duration: 60
+    instance_type: mac_mini_m1
+    environment:
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+    scripts:
+      - name: Install Flutter Dependencies
+        script: |
+          flutter pub get
+      - name: Generate iOS Platform Folder (jika belum ada)
+        script: |
+          if [ ! -d "ios" ]; then
+            flutter create --platforms=ios --org com.keuangan.pribadi --project-name keuangan_pribadi .
+          fi
+          /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity dict" ios/Runner/Info.plist || true
+          /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity:NSAllowsArbitraryLoads bool true" ios/Runner/Info.plist || true
+          /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName KeuanganKu" ios/Runner/Info.plist || true
+      - name: Build iOS (Tanpa Codesign untuk Simulator / AltStore / Sideloadly)
+        script: |
+          flutter build ios --release --no-codesign
+          mkdir -p Payload
+          cp -r build/ios/iphoneos/Runner.app Payload/
+          zip -r KeuanganPribadi-unsigned.ipa Payload
+    artifacts:
+      - KeuanganPribadi-unsigned.ipa
+      - build/ios/iphoneos/*.app

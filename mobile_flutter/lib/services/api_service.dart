@@ -4,15 +4,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/finance_models.dart';
 
 class ApiService {
+  static const String _prefAccountsListKey = 'registered_user_accounts_v1';
+  static const String _prefActiveUserIdKey = 'active_logged_in_user_id_v1';
   static const String _prefBaseUrlKey = 'laravel_api_base_url';
-  static const String _prefLocalCategoriesKey = 'local_categories_v1';
-  static const String _prefLocalTransactionsKey = 'local_transactions_v1';
-  static const String _prefLocalWalletsKey = 'local_wallets_v1';
-  static const String _prefLocalGoalsKey = 'local_saving_goals_v1';
-  static const String _prefLocalBillsKey = 'local_recurring_bills_v1';
-  static const String _prefWebhookUrlKey = 'local_gsheets_webhook_url';
-  static const String _prefSpreadsheetIdKey = 'local_gsheets_spreadsheet_id';
-  static const String _prefTabNameKey = 'local_gsheets_tab_name';
   static const String _prefDarkModeKey = 'app_dark_mode_v1';
   static const String _prefHideBalanceKey = 'app_hide_balance_v1';
   static const String _prefPinCodeKey = 'app_pin_code_v1';
@@ -21,12 +15,30 @@ class ApiService {
   static bool _isDarkMode = false;
   static bool _isBalanceHidden = false;
   static String _pinCode = '';
+  static UserAccountModel? _currentUser;
 
   static String get baseUrl => _baseUrl;
   static bool get isDarkMode => _isDarkMode;
   static bool get isBalanceHidden => _isBalanceHidden;
   static String get pinCode => _pinCode;
   static bool get hasPin => _pinCode.trim().length == 4;
+  static UserAccountModel? get currentUser => _currentUser;
+  static bool get isLoggedIn => _currentUser != null;
+
+  // Gunakan key asli untuk user_1 (Yoga Setiawan) agar data sebelumnya di iPhone tetap aman
+  static String get _prefix {
+    final uid = _currentUser?.id ?? 'user_1';
+    return uid == 'user_1' ? '' : '${uid}_';
+  }
+
+  static String get _categoriesKey => '${_prefix}local_categories_v1';
+  static String get _transactionsKey => '${_prefix}local_transactions_v1';
+  static String get _walletsKey => '${_prefix}local_wallets_v1';
+  static String get _goalsKey => '${_prefix}local_saving_goals_v1';
+  static String get _billsKey => '${_prefix}local_recurring_bills_v1';
+  static String get _webhookUrlKey => '${_prefix}local_gsheets_webhook_url';
+  static String get _spreadsheetIdKey => '${_prefix}local_gsheets_spreadsheet_id';
+  static String get _tabNameKey => '${_prefix}local_gsheets_tab_name';
 
   static Future<void> init() async {
     final prefs = await SharedPreferences.getInstance();
@@ -38,14 +50,118 @@ class ApiService {
     _isBalanceHidden = prefs.getBool(_prefHideBalanceKey) ?? false;
     _pinCode = prefs.getString(_prefPinCodeKey) ?? '';
 
-    if ((prefs.getString(_prefSpreadsheetIdKey) ?? '').isEmpty) {
-      await prefs.setString(
-        _prefSpreadsheetIdKey,
-        '1-k8FqqSIn_ZrOG7Cw5qFaau96o4j8XoKYPcPjaBy7dw',
+    await _ensureAccountsSeed(prefs);
+
+    final activeId = prefs.getString(_prefActiveUserIdKey);
+    if (activeId != null && activeId.isNotEmpty) {
+      final accounts = await getAllAccounts();
+      _currentUser =
+          accounts.where((a) => a.id == activeId).firstOrNull ?? accounts.firstOrNull;
+    }
+
+    if (_currentUser != null) {
+      await _ensureLocalSeed(prefs);
+    }
+  }
+
+  static Future<void> _ensureAccountsSeed(SharedPreferences prefs) async {
+    if (!prefs.containsKey(_prefAccountsListKey)) {
+      final defaultAccounts = [
+        {
+          'id': 'user_1',
+          'name': 'Yoga Setiawan',
+          'email': 'yoga@keuanganku.id',
+          'password': '123456',
+        }
+      ];
+      await prefs.setString(_prefAccountsListKey, jsonEncode(defaultAccounts));
+      // Secara default langsung aktifkan user_1 agar tidak mengganggu pengalaman awal
+      await prefs.setString(_prefActiveUserIdKey, 'user_1');
+    }
+  }
+
+  static Future<List<UserAccountModel>> getAllAccounts() async {
+    final prefs = await SharedPreferences.getInstance();
+    await _ensureAccountsSeed(prefs);
+    final raw = prefs.getString(_prefAccountsListKey) ?? '[]';
+    final List list = jsonDecode(raw);
+    return list
+        .map((e) => UserAccountModel.fromJson(Map<String, dynamic>.from(e)))
+        .toList();
+  }
+
+  static Future<UserAccountModel> login({
+    required String email,
+    required String password,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    final accounts = await getAllAccounts();
+    final cleanEmail = email.trim().toLowerCase();
+
+    final match = accounts.where((a) {
+      return (a.email.toLowerCase() == cleanEmail ||
+              a.name.toLowerCase() == cleanEmail) &&
+          a.password == password;
+    }).firstOrNull;
+
+    if (match == null) {
+      throw Exception('Email/Nama atau Password tidak sesuai');
+    }
+
+    _currentUser = match;
+    await prefs.setString(_prefActiveUserIdKey, match.id);
+    await _ensureLocalSeed(prefs);
+    return match;
+  }
+
+  static Future<UserAccountModel> register({
+    required String name,
+    required String email,
+    required String password,
+    String webhookUrl = '',
+    String spreadsheetId = '',
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    final accounts = await getAllAccounts();
+    final cleanEmail = email.trim().toLowerCase();
+
+    if (accounts.any((a) => a.email.toLowerCase() == cleanEmail)) {
+      throw Exception('Email sudah terdaftar, silakan langsung Masuk (Login)');
+    }
+
+    final newId = 'user_${DateTime.now().millisecondsSinceEpoch}';
+    final newUser = UserAccountModel(
+      id: newId,
+      name: name.trim(),
+      email: cleanEmail,
+      password: password,
+    );
+
+    accounts.add(newUser);
+    await prefs.setString(
+      _prefAccountsListKey,
+      jsonEncode(accounts.map((a) => a.toJson()).toList()),
+    );
+
+    _currentUser = newUser;
+    await prefs.setString(_prefActiveUserIdKey, newUser.id);
+    await _ensureLocalSeed(prefs);
+
+    if (webhookUrl.trim().isNotEmpty || spreadsheetId.trim().isNotEmpty) {
+      await saveSettings(
+        webhookUrl: webhookUrl.trim(),
+        spreadsheetId: spreadsheetId.trim(),
+        tabName: 'Transaksi',
       );
     }
 
-    await _ensureLocalSeed(prefs);
+    return newUser;
+  }
+
+  static Future<void> logout() async {
+    final prefs = await SharedPreferences.getInstance();
+    _currentUser = null;
+    await prefs.remove(_prefActiveUserIdKey);
   }
 
   static Future<void> setDarkMode(bool value) async {
@@ -67,16 +183,24 @@ class ApiService {
   }
 
   static Future<void> _ensureLocalSeed(SharedPreferences prefs) async {
-    if (!prefs.containsKey(_prefLocalWalletsKey)) {
+    if ((_currentUser?.id ?? 'user_1') == 'user_1' &&
+        (prefs.getString(_spreadsheetIdKey) ?? '').isEmpty) {
+      await prefs.setString(
+        _spreadsheetIdKey,
+        '1-k8FqqSIn_ZrOG7Cw5qFaau96o4j8XoKYPcPjaBy7dw',
+      );
+    }
+
+    if (!prefs.containsKey(_walletsKey)) {
       final defaultWallets = [
         {'id': 1, 'name': 'Tunai', 'icon': 'wallet', 'color': '#10B981', 'initial_balance': 0.0},
         {'id': 2, 'name': 'Rekening Bank', 'icon': 'bank', 'color': '#3B82F6', 'initial_balance': 0.0},
         {'id': 3, 'name': 'E-Wallet', 'icon': 'ewallet', 'color': '#8B5CF6', 'initial_balance': 0.0},
       ];
-      await prefs.setString(_prefLocalWalletsKey, jsonEncode(defaultWallets));
+      await prefs.setString(_walletsKey, jsonEncode(defaultWallets));
     }
 
-    if (!prefs.containsKey(_prefLocalCategoriesKey)) {
+    if (!prefs.containsKey(_categoriesKey)) {
       final defaultCats = [
         {'id': 1, 'name': 'Gaji Bulanan', 'type': 'income', 'icon': 'wallet', 'color': '#10B981', 'monthly_budget': 0.0},
         {'id': 2, 'name': 'Freelance & Proyek', 'type': 'income', 'icon': 'laptop', 'color': '#06B6D4', 'monthly_budget': 0.0},
@@ -89,32 +213,24 @@ class ApiService {
         {'id': 9, 'name': 'Hiburan & Langganan', 'type': 'expense', 'icon': 'movie', 'color': '#6366F1', 'monthly_budget': 300000.0},
         {'id': 10, 'name': 'Kesehatan', 'type': 'expense', 'icon': 'medical', 'color': '#14B9A6', 'monthly_budget': 300000.0},
       ];
-      await prefs.setString(_prefLocalCategoriesKey, jsonEncode(defaultCats));
+      await prefs.setString(_categoriesKey, jsonEncode(defaultCats));
     }
 
-    if (!prefs.containsKey(_prefLocalGoalsKey)) {
+    if (!prefs.containsKey(_goalsKey)) {
       final defaultGoals = [
         {
           'id': 1,
           'title': 'Dana Darurat',
           'target_amount': 10000000.0,
-          'saved_amount': 1500000.0,
+          'saved_amount': (_currentUser?.id == 'user_1') ? 1500000.0 : 0.0,
           'color': '#10B981',
           'icon': 'savings',
         },
-        {
-          'id': 2,
-          'title': 'Tabungan Gadget / Impian',
-          'target_amount': 15000000.0,
-          'saved_amount': 3000000.0,
-          'color': '#3B82F6',
-          'icon': 'laptop',
-        },
       ];
-      await prefs.setString(_prefLocalGoalsKey, jsonEncode(defaultGoals));
+      await prefs.setString(_goalsKey, jsonEncode(defaultGoals));
     }
 
-    if (!prefs.containsKey(_prefLocalBillsKey)) {
+    if (!prefs.containsKey(_billsKey)) {
       final defaultBills = [
         {
           'id': 1,
@@ -125,65 +241,60 @@ class ApiService {
           'wallet_name': 'Rekening Bank',
           'day_of_month': 5,
         },
-        {
-          'id': 2,
-          'title': 'Paket Data & Langganan',
-          'amount': 100000.0,
-          'category_id': 9,
-          'category_name': 'Hiburan & Langganan',
-          'wallet_name': 'E-Wallet',
-          'day_of_month': 10,
-        },
       ];
-      await prefs.setString(_prefLocalBillsKey, jsonEncode(defaultBills));
+      await prefs.setString(_billsKey, jsonEncode(defaultBills));
     }
 
-    if (!prefs.containsKey(_prefLocalTransactionsKey)) {
-      final now = DateTime.now();
-      final ym = '${now.year}-${now.month.toString().padLeft(2, '0')}';
-      final defaultTrx = [
-        {
-          'id': 1,
-          'category_id': 1,
-          'type': 'income',
-          'amount': 1500000.0,
-          'transaction_date': '$ym-13',
-          'description': 'Gaji Pokok Bulanan',
-          'wallet_name': 'Rekening Bank',
-          'is_synced_to_sheet': true,
-        },
-        {
-          'id': 2,
-          'category_id': 5,
-          'type': 'expense',
-          'amount': 12000.0,
-          'transaction_date': '$ym-16',
-          'description': 'Makan Pagi',
-          'wallet_name': 'Tunai',
-          'is_synced_to_sheet': true,
-        },
-        {
-          'id': 3,
-          'category_id': 5,
-          'type': 'expense',
-          'amount': 12000.0,
-          'transaction_date': '$ym-16',
-          'description': 'Makan Siang',
-          'wallet_name': 'Tunai',
-          'is_synced_to_sheet': true,
-        },
-        {
-          'id': 4,
-          'category_id': 5,
-          'type': 'expense',
-          'amount': 9000.0,
-          'transaction_date': '$ym-16',
-          'description': 'Jajan Pentol Goreng',
-          'wallet_name': 'Tunai',
-          'is_synced_to_sheet': true,
-        },
-      ];
-      await prefs.setString(_prefLocalTransactionsKey, jsonEncode(defaultTrx));
+    if (!prefs.containsKey(_transactionsKey)) {
+      if ((_currentUser?.id ?? 'user_1') == 'user_1') {
+        final now = DateTime.now();
+        final ym = '${now.year}-${now.month.toString().padLeft(2, '0')}';
+        final defaultTrx = [
+          {
+            'id': 1,
+            'category_id': 1,
+            'type': 'income',
+            'amount': 1500000.0,
+            'transaction_date': '$ym-13',
+            'description': 'Gaji Pokok Bulanan',
+            'wallet_name': 'Rekening Bank',
+            'is_synced_to_sheet': true,
+          },
+          {
+            'id': 2,
+            'category_id': 5,
+            'type': 'expense',
+            'amount': 12000.0,
+            'transaction_date': '$ym-16',
+            'description': 'Makan Pagi',
+            'wallet_name': 'Tunai',
+            'is_synced_to_sheet': true,
+          },
+          {
+            'id': 3,
+            'category_id': 5,
+            'type': 'expense',
+            'amount': 12000.0,
+            'transaction_date': '$ym-16',
+            'description': 'Makan Siang',
+            'wallet_name': 'Tunai',
+            'is_synced_to_sheet': true,
+          },
+          {
+            'id': 4,
+            'category_id': 5,
+            'type': 'expense',
+            'amount': 9000.0,
+            'transaction_date': '$ym-16',
+            'description': 'Jajan Pentol Goreng',
+            'wallet_name': 'Tunai',
+            'is_synced_to_sheet': true,
+          },
+        ];
+        await prefs.setString(_transactionsKey, jsonEncode(defaultTrx));
+      } else {
+        await prefs.setString(_transactionsKey, jsonEncode([]));
+      }
     }
   }
 
@@ -197,15 +308,10 @@ class ApiService {
     await prefs.setString(_prefBaseUrlKey, _baseUrl);
   }
 
-  static Map<String, String> get _headers => {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-      };
-
   static Future<List<WalletModel>> fetchWallets() async {
     final prefs = await SharedPreferences.getInstance();
     await _ensureLocalSeed(prefs);
-    final raw = prefs.getString(_prefLocalWalletsKey) ?? '[]';
+    final raw = prefs.getString(_walletsKey) ?? '[]';
     final List list = jsonDecode(raw);
     final allTrx = await _getLocalTransactions();
 
@@ -234,7 +340,7 @@ class ApiService {
     double initialBalance = 0,
   }) async {
     final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_prefLocalWalletsKey) ?? '[]';
+    final raw = prefs.getString(_walletsKey) ?? '[]';
     final List list = jsonDecode(raw);
     int maxId = 0;
     for (final item in list) {
@@ -248,7 +354,7 @@ class ApiService {
       'color': color,
       'initial_balance': initialBalance,
     });
-    await prefs.setString(_prefLocalWalletsKey, jsonEncode(list));
+    await prefs.setString(_walletsKey, jsonEncode(list));
   }
 
   static Future<void> transferBetweenWallets({
@@ -283,7 +389,7 @@ class ApiService {
   static Future<List<SavingGoalModel>> fetchSavingGoals() async {
     final prefs = await SharedPreferences.getInstance();
     await _ensureLocalSeed(prefs);
-    final raw = prefs.getString(_prefLocalGoalsKey) ?? '[]';
+    final raw = prefs.getString(_goalsKey) ?? '[]';
     final List list = jsonDecode(raw);
     return list
         .map((e) => SavingGoalModel.fromJson(Map<String, dynamic>.from(e)))
@@ -311,7 +417,7 @@ class ApiService {
       icon: icon,
     ));
     await prefs.setString(
-      _prefLocalGoalsKey,
+      _goalsKey,
       jsonEncode(goals.map((g) => g.toJson()).toList()),
     );
   }
@@ -333,7 +439,7 @@ class ApiService {
       return g;
     }).toList();
     await prefs.setString(
-      _prefLocalGoalsKey,
+      _goalsKey,
       jsonEncode(updated.map((g) => g.toJson()).toList()),
     );
   }
@@ -343,7 +449,7 @@ class ApiService {
     final goals = await fetchSavingGoals();
     goals.removeWhere((g) => g.id == id);
     await prefs.setString(
-      _prefLocalGoalsKey,
+      _goalsKey,
       jsonEncode(goals.map((g) => g.toJson()).toList()),
     );
   }
@@ -351,7 +457,7 @@ class ApiService {
   static Future<List<RecurringBillModel>> fetchRecurringBills() async {
     final prefs = await SharedPreferences.getInstance();
     await _ensureLocalSeed(prefs);
-    final raw = prefs.getString(_prefLocalBillsKey) ?? '[]';
+    final raw = prefs.getString(_billsKey) ?? '[]';
     final List list = jsonDecode(raw);
     return list
         .map((e) => RecurringBillModel.fromJson(Map<String, dynamic>.from(e)))
@@ -381,7 +487,7 @@ class ApiService {
       dayOfMonth: dayOfMonth,
     ));
     await prefs.setString(
-      _prefLocalBillsKey,
+      _billsKey,
       jsonEncode(bills.map((b) => b.toJson()).toList()),
     );
   }
@@ -391,7 +497,7 @@ class ApiService {
     final bills = await fetchRecurringBills();
     bills.removeWhere((b) => b.id == id);
     await prefs.setString(
-      _prefLocalBillsKey,
+      _billsKey,
       jsonEncode(bills.map((b) => b.toJson()).toList()),
     );
   }
@@ -399,7 +505,7 @@ class ApiService {
   static Future<List<CategoryModel>> _getLocalCategories() async {
     final prefs = await SharedPreferences.getInstance();
     await _ensureLocalSeed(prefs);
-    final raw = prefs.getString(_prefLocalCategoriesKey) ?? '[]';
+    final raw = prefs.getString(_categoriesKey) ?? '[]';
     final List list = jsonDecode(raw);
     return list
         .map((e) => CategoryModel.fromJson(Map<String, dynamic>.from(e)))
@@ -423,7 +529,7 @@ class ApiService {
       return c;
     }).toList();
     await prefs.setString(
-      _prefLocalCategoriesKey,
+      _categoriesKey,
       jsonEncode(updated.map((c) => c.toJson()).toList()),
     );
   }
@@ -433,7 +539,7 @@ class ApiService {
     final cats = await _getLocalCategories();
     final catMap = {for (final c in cats) c.id: c};
 
-    final raw = prefs.getString(_prefLocalTransactionsKey) ?? '[]';
+    final raw = prefs.getString(_transactionsKey) ?? '[]';
     final List list = jsonDecode(raw);
     final result = <TransactionModel>[];
 
@@ -544,7 +650,7 @@ class ApiService {
       ));
     }
 
-    final webhookUrl = prefs.getString(_prefWebhookUrlKey) ?? '';
+    final webhookUrl = prefs.getString(_webhookUrlKey) ?? '';
     final unsyncedCount = allTrx.where((t) => !t.isSyncedToSheet).length;
 
     return DashboardData(
@@ -591,7 +697,7 @@ class ApiService {
     );
     cats.add(newCat);
     await prefs.setString(
-      _prefLocalCategoriesKey,
+      _categoriesKey,
       jsonEncode(cats.map((c) => c.toJson()).toList()),
     );
     return newCat;
@@ -602,7 +708,7 @@ class ApiService {
     final cats = await _getLocalCategories();
     cats.removeWhere((c) => c.id == id);
     await prefs.setString(
-      _prefLocalCategoriesKey,
+      _categoriesKey,
       jsonEncode(cats.map((c) => c.toJson()).toList()),
     );
   }
@@ -658,7 +764,7 @@ class ApiService {
     final cats = await _getLocalCategories();
     final cat = cats.where((c) => c.id == categoryId).firstOrNull;
 
-    final raw = prefs.getString(_prefLocalTransactionsKey) ?? '[]';
+    final raw = prefs.getString(_transactionsKey) ?? '[]';
     final List list = jsonDecode(raw);
     int maxId = 0;
     for (final item in list) {
@@ -668,7 +774,7 @@ class ApiService {
     final newId = maxId + 1;
 
     bool synced = false;
-    final webhookUrl = prefs.getString(_prefWebhookUrlKey) ?? '';
+    final webhookUrl = prefs.getString(_webhookUrlKey) ?? '';
     if (webhookUrl.isNotEmpty) {
       synced = await _pushDirectToWebhook(webhookUrl, {
         'action': 'upsert',
@@ -695,7 +801,7 @@ class ApiService {
       'is_synced_to_sheet': synced,
     };
     list.add(newTrx);
-    await prefs.setString(_prefLocalTransactionsKey, jsonEncode(list));
+    await prefs.setString(_transactionsKey, jsonEncode(list));
 
     return {
       'success': true,
@@ -717,11 +823,11 @@ class ApiService {
     final cats = await _getLocalCategories();
     final cat = cats.where((c) => c.id == categoryId).firstOrNull;
 
-    final raw = prefs.getString(_prefLocalTransactionsKey) ?? '[]';
+    final raw = prefs.getString(_transactionsKey) ?? '[]';
     final List list = jsonDecode(raw);
 
     bool synced = false;
-    final webhookUrl = prefs.getString(_prefWebhookUrlKey) ?? '';
+    final webhookUrl = prefs.getString(_webhookUrlKey) ?? '';
     if (webhookUrl.isNotEmpty) {
       synced = await _pushDirectToWebhook(webhookUrl, {
         'action': 'upsert',
@@ -752,7 +858,7 @@ class ApiService {
         break;
       }
     }
-    await prefs.setString(_prefLocalTransactionsKey, jsonEncode(list));
+    await prefs.setString(_transactionsKey, jsonEncode(list));
 
     return {
       'success': true,
@@ -762,12 +868,12 @@ class ApiService {
 
   static Future<void> deleteTransaction(int id) async {
     final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_prefLocalTransactionsKey) ?? '[]';
+    final raw = prefs.getString(_transactionsKey) ?? '[]';
     final List list = jsonDecode(raw);
     list.removeWhere((item) => (item['id'] as num).toInt() == id);
-    await prefs.setString(_prefLocalTransactionsKey, jsonEncode(list));
+    await prefs.setString(_transactionsKey, jsonEncode(list));
 
-    final webhookUrl = prefs.getString(_prefWebhookUrlKey) ?? '';
+    final webhookUrl = prefs.getString(_webhookUrlKey) ?? '';
     if (webhookUrl.isNotEmpty) {
       await _pushDirectToWebhook(webhookUrl, {'action': 'delete', 'id': id});
     }
@@ -775,7 +881,7 @@ class ApiService {
 
   static Future<Map<String, dynamic>> syncToGoogleSheets() async {
     final prefs = await SharedPreferences.getInstance();
-    final webhookUrl = prefs.getString(_prefWebhookUrlKey) ?? '';
+    final webhookUrl = prefs.getString(_webhookUrlKey) ?? '';
     if (webhookUrl.isEmpty) {
       return {
         'success': false,
@@ -802,15 +908,15 @@ class ApiService {
     });
 
     if (ok) {
-      final raw = prefs.getString(_prefLocalTransactionsKey) ?? '[]';
+      final raw = prefs.getString(_transactionsKey) ?? '[]';
       final List list = jsonDecode(raw);
       for (final item in list) {
         item['is_synced_to_sheet'] = true;
       }
-      await prefs.setString(_prefLocalTransactionsKey, jsonEncode(list));
+      await prefs.setString(_transactionsKey, jsonEncode(list));
       return {
         'success': true,
-        'message': '✓ Berhasil menyinkronkan ${payload.length} transaksi ke Google Sheets!',
+        'message': '✓ Berhasil mengirim ${payload.length} transaksi ke Google Sheets!',
       };
     }
 
@@ -820,62 +926,43 @@ class ApiService {
     };
   }
 
-  /// FITUR 3: Sinkronisasi 2 Arah (Tarik / Pull Data dari Google Sheets ke iPhone)
+  /// FITUR 3: Tarik Data dari Google Sheets (Termasuk data yang diketik langsung di Google Sheets!)
   static Future<Map<String, dynamic>> pullFromGoogleSheets() async {
     final prefs = await SharedPreferences.getInstance();
-    final spreadsheetId = (prefs.getString(_prefSpreadsheetIdKey) ??
+    final spreadsheetId = (prefs.getString(_spreadsheetIdKey) ??
             '1-k8FqqSIn_ZrOG7Cw5qFaau96o4j8XoKYPcPjaBy7dw')
         .trim();
-    final tabName = (prefs.getString(_prefTabNameKey) ?? 'Transaksi').trim();
-    final webhookUrl = (prefs.getString(_prefWebhookUrlKey) ?? '').trim();
+    final tabName = (prefs.getString(_tabNameKey) ?? 'Transaksi').trim();
+    final webhookUrl = (prefs.getString(_webhookUrlKey) ?? '').trim();
 
     final cats = await _getLocalCategories();
     int? matchCatId(String name, String type) {
+      final clean = name.trim().toLowerCase();
       for (final c in cats) {
-        if (c.name.toLowerCase() == name.toLowerCase()) return c.id;
+        if (c.name.toLowerCase() == clean) return c.id;
+      }
+      for (final c in cats) {
+        if (clean.contains(c.name.toLowerCase().split(' ').first)) return c.id;
       }
       return cats.where((c) => c.type == type).firstOrNull?.id;
     }
 
-    // 1. Coba tarik lewat Webhook Apps Script jika mendukung action=pull
+    // 1. Coba tarik lewat Webhook Apps Script (GET ?action=pull atau POST action=pull)
     if (webhookUrl.isNotEmpty) {
       try {
         final uri = Uri.parse(webhookUrl).replace(queryParameters: {'action': 'pull'});
-        final res = await http.get(uri).timeout(const Duration(seconds: 12));
-        if (res.statusCode == 200) {
-          final decoded = jsonDecode(res.body);
+        final bodyStr = await _fetchFollowingRedirect(uri);
+        if (bodyStr != null) {
+          final decoded = jsonDecode(bodyStr);
           if (decoded is Map && decoded['transactions'] is List) {
             final rows = decoded['transactions'] as List;
-            final imported = <Map<String, dynamic>>[];
-            for (final r in rows) {
-              final m = Map<String, dynamic>.from(r);
-              final typeStr = (m['type'] ?? 'expense').toString().toLowerCase();
-              final normType = (typeStr == 'income' || typeStr == 'pemasukan') ? 'income' : 'expense';
-              final catName = (m['category_name'] ?? 'Lainnya').toString();
-              final rawDesc = (m['description'] ?? '').toString();
-              String wallet = 'Tunai';
-              String cleanDesc = rawDesc;
-              if (rawDesc.startsWith('[') && rawDesc.contains(']')) {
-                final idx = rawDesc.indexOf(']');
-                wallet = rawDesc.substring(1, idx).trim();
-                cleanDesc = rawDesc.substring(idx + 1).trim();
-              }
-              imported.add({
-                'id': (m['id'] as num?)?.toInt() ?? (imported.length + 1),
-                'category_id': matchCatId(catName, normType),
-                'type': normType,
-                'amount': double.tryParse(m['amount'].toString().replaceAll(RegExp(r'[^0-9.]'), '')) ?? 0.0,
-                'transaction_date': (m['transaction_date'] ?? '').toString().split('T').first,
-                'description': cleanDesc,
-                'wallet_name': wallet,
-                'is_synced_to_sheet': true,
-              });
-            }
+            final imported = _convertImportedRows(rows, matchCatId);
             if (imported.isNotEmpty) {
-              await prefs.setString(_prefLocalTransactionsKey, jsonEncode(imported));
+              await prefs.setString(_transactionsKey, jsonEncode(imported));
               return {
                 'success': true,
-                'message': '✓ Berhasil menarik ${imported.length} transaksi dari Google Sheets ke iPhone!',
+                'message':
+                    '✓ Berhasil menarik ${imported.length} transaksi dari Google Sheets ke aplikasi!',
               };
             }
           }
@@ -883,51 +970,37 @@ class ApiService {
       } catch (_) {}
     }
 
-    // 2. Fallback CSV Export publik jika sheet di-share link
+    // 2. Coba tarik langsung dari Google Sheets CSV Endpoint (Tanpa perlu update Apps Script!)
     if (spreadsheetId.isNotEmpty) {
       try {
         final csvUrl =
             'https://docs.google.com/spreadsheets/d/$spreadsheetId/gviz/tq?tqx=out:csv&sheet=${Uri.encodeComponent(tabName)}';
         final res = await http.get(Uri.parse(csvUrl)).timeout(const Duration(seconds: 12));
-        if (res.statusCode == 200 && !res.body.trim().startsWith('<!DOCTYPE')) {
+        if (res.statusCode == 200 &&
+            !res.body.trim().startsWith('<!DOCTYPE') &&
+            !res.body.trim().startsWith('<html')) {
           final lines = const LineSplitter().convert(res.body);
-          final imported = <Map<String, dynamic>>[];
+          final rawRows = <Map<String, dynamic>>[];
           for (int i = 1; i < lines.length; i++) {
             final cols = _parseCsvLine(lines[i]);
-            if (cols.length >= 6) {
-              final id = int.tryParse(cols[0].replaceAll(RegExp(r'[^0-9]'), '')) ?? i;
-              final date = cols[1].trim();
-              final rawType = cols[2].trim().toLowerCase();
-              final normType = (rawType == 'income' || rawType == 'pemasukan') ? 'income' : 'expense';
-              final catName = cols[3].trim();
-              final amt = double.tryParse(cols[4].replaceAll(RegExp(r'[^0-9]'), '')) ?? 0.0;
-              final rawDesc = cols[5].trim();
-              String wallet = 'Tunai';
-              String cleanDesc = rawDesc;
-              if (rawDesc.startsWith('[') && rawDesc.contains(']')) {
-                final idx = rawDesc.indexOf(']');
-                wallet = rawDesc.substring(1, idx).trim();
-                cleanDesc = rawDesc.substring(idx + 1).trim();
-              }
-              if (amt > 0) {
-                imported.add({
-                  'id': id,
-                  'category_id': matchCatId(catName, normType),
-                  'type': normType,
-                  'amount': amt,
-                  'transaction_date': date,
-                  'description': cleanDesc,
-                  'wallet_name': wallet,
-                  'is_synced_to_sheet': true,
-                });
-              }
+            if (cols.length >= 5) {
+              rawRows.add({
+                'id': cols[0],
+                'transaction_date': cols[1],
+                'type': cols[2],
+                'category_name': cols[3],
+                'amount': cols[4],
+                'description': cols.length > 5 ? cols[5] : '',
+              });
             }
           }
+          final imported = _convertImportedRows(rawRows, matchCatId);
           if (imported.isNotEmpty) {
-            await prefs.setString(_prefLocalTransactionsKey, jsonEncode(imported));
+            await prefs.setString(_transactionsKey, jsonEncode(imported));
             return {
               'success': true,
-              'message': '✓ Berhasil menarik ${imported.length} transaksi dari Google Sheets!',
+              'message':
+                  '✓ Berhasil menarik ${imported.length} transaksi langsung dari Google Sheets!',
             };
           }
         }
@@ -937,8 +1010,82 @@ class ApiService {
     return {
       'success': false,
       'message':
-          'Untuk menarik data dari Sheets ke iPhone, pastikan kode Code.gs terbaru sudah dipasang di Apps Script atau akses Spreadsheet dibuka.',
+          'Agar data yang diketik di Google Sheets bisa ditarik ke HP, klik tombol "Share/Bagikan" di Google Sheets -> ubah General Access ke "Anyone with the link (Viewer)", atau perbarui Code.gs di Apps Script.',
     };
+  }
+
+  static List<Map<String, dynamic>> _convertImportedRows(
+    List rows,
+    int? Function(String, String) matchCatId,
+  ) {
+    final imported = <Map<String, dynamic>>[];
+    int autoId = 1;
+    for (final r in rows) {
+      final m = Map<String, dynamic>.from(r);
+      final rawAmtStr = (m['amount'] ?? '0').toString().replaceAll(RegExp(r'[^0-9]'), '');
+      final amt = double.tryParse(rawAmtStr) ?? 0.0;
+      if (amt <= 0) continue;
+
+      final typeStr = (m['type'] ?? 'expense').toString().trim().toLowerCase();
+      final normType = (typeStr == 'income' ||
+              typeStr == 'pemasukan' ||
+              typeStr == 'masuk')
+          ? 'income'
+          : 'expense';
+
+      final catName = (m['category_name'] ?? 'Lainnya').toString().trim();
+      final rawDate = (m['transaction_date'] ?? '').toString().trim();
+      final isoDate = CurrencyHelper.normalizeIsoDate(rawDate);
+
+      final rawDesc = (m['description'] ?? '').toString().trim();
+      String wallet = 'Tunai';
+      String cleanDesc = rawDesc;
+      if (rawDesc.startsWith('[') && rawDesc.contains(']')) {
+        final idx = rawDesc.indexOf(']');
+        wallet = rawDesc.substring(1, idx).trim();
+        cleanDesc = rawDesc.substring(idx + 1).trim();
+      }
+
+      final parsedId =
+          int.tryParse((m['id'] ?? '').toString().replaceAll(RegExp(r'[^0-9]'), '')) ??
+              autoId;
+      if (parsedId >= autoId) autoId = parsedId + 1;
+
+      imported.add({
+        'id': parsedId,
+        'category_id': matchCatId(catName, normType),
+        'type': normType,
+        'amount': amt,
+        'transaction_date': isoDate,
+        'description': cleanDesc == '-' ? '' : cleanDesc,
+        'wallet_name': wallet,
+        'is_synced_to_sheet': true,
+      });
+    }
+    return imported;
+  }
+
+  static Future<String?> _fetchFollowingRedirect(Uri uri) async {
+    final client = http.Client();
+    try {
+      final req = http.Request('GET', uri)..followRedirects = false;
+      final streamed = await client.send(req).timeout(const Duration(seconds: 12));
+      if (streamed.statusCode >= 200 && streamed.statusCode < 300) {
+        return await streamed.stream.bytesToString();
+      }
+      if (streamed.statusCode >= 300 && streamed.statusCode < 400) {
+        final loc = streamed.headers['location'] ?? '';
+        if (loc.isNotEmpty && !loc.contains('accounts.google.com')) {
+          final res2 = await client.get(Uri.parse(loc)).timeout(const Duration(seconds: 10));
+          if (res2.statusCode == 200) return res2.body;
+        }
+      }
+      return null;
+    } catch (_) {
+      return null;
+    } finally {
+      client.close();
+    }
   }
 
   static List<String> _parseCsvLine(String line) {
@@ -997,11 +1144,14 @@ class ApiService {
 
   static Future<Map<String, String>> fetchSettings() async {
     final prefs = await SharedPreferences.getInstance();
+    final defaultSheetId = ((_currentUser?.id ?? 'user_1') == 'user_1')
+        ? '1-k8FqqSIn_ZrOG7Cw5qFaau96o4j8XoKYPcPjaBy7dw'
+        : '';
     return {
-      'google_sheets_webhook_url': prefs.getString(_prefWebhookUrlKey) ?? '',
-      'google_sheets_spreadsheet_id': prefs.getString(_prefSpreadsheetIdKey) ??
-          '1-k8FqqSIn_ZrOG7Cw5qFaau96o4j8XoKYPcPjaBy7dw',
-      'google_sheets_tab_name': prefs.getString(_prefTabNameKey) ?? 'Transaksi',
+      'google_sheets_webhook_url': prefs.getString(_webhookUrlKey) ?? '',
+      'google_sheets_spreadsheet_id':
+          prefs.getString(_spreadsheetIdKey) ?? defaultSheetId,
+      'google_sheets_tab_name': prefs.getString(_tabNameKey) ?? 'Transaksi',
     };
   }
 
@@ -1011,8 +1161,8 @@ class ApiService {
     required String tabName,
   }) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_prefWebhookUrlKey, webhookUrl);
-    await prefs.setString(_prefSpreadsheetIdKey, spreadsheetId);
-    await prefs.setString(_prefTabNameKey, tabName);
+    await prefs.setString(_webhookUrlKey, webhookUrl);
+    await prefs.setString(_spreadsheetIdKey, spreadsheetId);
+    await prefs.setString(_tabNameKey, tabName);
   }
 }

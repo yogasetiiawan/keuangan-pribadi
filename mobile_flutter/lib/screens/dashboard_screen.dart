@@ -74,10 +74,40 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<void> _syncNow() async {
+    HapticFeedback.selectionClick();
+    final choice = await showCupertinoModalPopup<String>(
+      context: context,
+      builder: (ctx) => CupertinoActionSheet(
+        title: const Text('Sinkronisasi 2 Arah Google Sheets'),
+        message: const Text(
+          'Pilih "Tarik dari Sheets" jika Anda baru saja menambahkan data lewat Google Sheets, atau "Kirim ke Sheets" untuk menyimpan data dari HP.',
+        ),
+        actions: [
+          CupertinoActionSheetAction(
+            onPressed: () => Navigator.of(ctx).pop('pull'),
+            child: const Text('⬇️ Tarik Data dari Google Sheets ke Aplikasi'),
+          ),
+          CupertinoActionSheetAction(
+            onPressed: () => Navigator.of(ctx).pop('push'),
+            child: const Text('⬆️ Kirim Data dari Aplikasi ke Google Sheets'),
+          ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          isDestructiveAction: true,
+          onPressed: () => Navigator.of(ctx).pop(),
+          child: const Text('Batal'),
+        ),
+      ),
+    );
+
+    if (choice == null) return;
+
     HapticFeedback.mediumImpact();
     setState(() => _isSyncing = true);
     try {
-      final res = await ApiService.syncToGoogleSheets();
+      final res = choice == 'pull'
+          ? await ApiService.pullFromGoogleSheets()
+          : await ApiService.syncToGoogleSheets();
       if (!mounted) return;
       final success = res['success'] == true;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -93,6 +123,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ),
       );
       await _loadDashboard();
+      widget.onRefreshRequested();
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

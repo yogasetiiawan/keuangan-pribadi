@@ -89,11 +89,69 @@ class CurrencyHelper {
     return monthNames[month - 1];
   }
 
+  /// Normalisasi berbagai format tanggal dari Google Sheets ("16/11/2026", "16 November 2026", "2026-11-16")
+  /// menjadi format ISO "2026-11-16" agar terbaca di filter bulanan aplikasi
+  static String normalizeIsoDate(String raw) {
+    final clean = raw.trim().split('T').first.trim();
+    if (clean.isEmpty) {
+      final now = DateTime.now();
+      return '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+    }
+
+    // Jika sudah yyyy-mm-dd
+    final dashParts = clean.split('-');
+    if (dashParts.length == 3) {
+      if (dashParts[0].length == 4) {
+        final y = dashParts[0];
+        final m = dashParts[1].padLeft(2, '0');
+        final d = dashParts[2].padLeft(2, '0');
+        return '$y-$m-$d';
+      } else if (dashParts[2].length == 4) {
+        // dd-mm-yyyy
+        final d = dashParts[0].padLeft(2, '0');
+        final m = dashParts[1].padLeft(2, '0');
+        final y = dashParts[2];
+        return '$y-$m-$d';
+      }
+    }
+
+    // Jika dd/mm/yyyy atau mm/dd/yyyy
+    final slashParts = clean.split('/');
+    if (slashParts.length == 3) {
+      if (slashParts[2].length == 4) {
+        final p0 = int.tryParse(slashParts[0]) ?? 1;
+        final p1 = int.tryParse(slashParts[1]) ?? 1;
+        final y = slashParts[2];
+        // Jika p0 > 12 pasti dd/mm/yyyy
+        final day = p0 > 12 ? p0 : (p1 > 12 ? p0 : p0);
+        final month = p0 > 12 ? p1 : (p1 > 12 ? p1 : p1);
+        return '$y-${month.toString().padLeft(2, '0')}-${day.toString().padLeft(2, '0')}';
+      }
+    }
+
+    // Jika "16 November 2026"
+    final spaceParts = clean.split(RegExp(r'\s+'));
+    if (spaceParts.length == 3) {
+      final d = int.tryParse(spaceParts[0]);
+      final mName = spaceParts[1].toLowerCase();
+      final y = int.tryParse(spaceParts[2]);
+      if (d != null && y != null) {
+        for (int i = 0; i < monthNames.length; i++) {
+          if (monthNames[i].toLowerCase().startsWith(mName.substring(0, mName.length.clamp(0, 3)))) {
+            return '$y-${(i + 1).toString().padLeft(2, '0')}-${d.toString().padLeft(2, '0')}';
+          }
+        }
+      }
+    }
+
+    return clean;
+  }
+
   /// Mengubah tanggal "2026-11-16" menjadi "16 November 2026"
   static String formatIndonesianDate(String rawDate) {
     if (rawDate.trim().isEmpty) return '-';
-    final clean = rawDate.trim().split('T').first.split(' ').first;
-    final parts = clean.split('-');
+    final iso = normalizeIsoDate(rawDate);
+    final parts = iso.split('-');
     if (parts.length == 3) {
       final year = int.tryParse(parts[0]);
       final month = int.tryParse(parts[1]);
@@ -154,6 +212,43 @@ class CurrencyHelper {
         return Icons.category_rounded;
     }
   }
+}
+
+class UserAccountModel {
+  final String id;
+  final String name;
+  final String email;
+  final String password;
+
+  UserAccountModel({
+    required this.id,
+    required this.name,
+    required this.email,
+    required this.password,
+  });
+
+  String get initials {
+    final parts = name.trim().split(RegExp(r'\s+'));
+    if (parts.isEmpty || parts.first.isEmpty) return 'U';
+    if (parts.length == 1) return parts.first[0].toUpperCase();
+    return '${parts.first[0]}${parts.last[0]}'.toUpperCase();
+  }
+
+  factory UserAccountModel.fromJson(Map<String, dynamic> json) {
+    return UserAccountModel(
+      id: (json['id'] ?? 'user_1').toString(),
+      name: (json['name'] ?? 'Pengguna').toString(),
+      email: (json['email'] ?? '').toString(),
+      password: (json['password'] ?? '').toString(),
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'name': name,
+        'email': email,
+        'password': password,
+      };
 }
 
 class WalletModel {
@@ -259,7 +354,6 @@ class TransactionModel {
     String rawDesc = (json['description'] ?? '').toString();
     String wallet = (json['wallet_name'] ?? '').toString();
 
-    // Ekstrak prefix [Nama Dompet] jika berasal dari sinkronisasi Google Sheets
     if (wallet.isEmpty && rawDesc.startsWith('[') && rawDesc.contains(']')) {
       final endIdx = rawDesc.indexOf(']');
       wallet = rawDesc.substring(1, endIdx).trim();
@@ -272,7 +366,7 @@ class TransactionModel {
       categoryId: json['category_id'] != null ? (json['category_id'] as num).toInt() : null,
       type: (json['type'] ?? 'expense').toString(),
       amount: (json['amount'] as num).toDouble(),
-      transactionDate: (json['transaction_date'] ?? '').toString(),
+      transactionDate: CurrencyHelper.normalizeIsoDate((json['transaction_date'] ?? '').toString()),
       description: rawDesc,
       walletName: wallet,
       isSyncedToSheet: json['is_synced_to_sheet'] == true || json['is_synced_to_sheet'] == 1,

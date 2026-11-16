@@ -9,6 +9,7 @@ import 'screens/goals_and_bills_screen.dart';
 import 'screens/categories_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/add_transaction_sheet.dart';
+import 'screens/auth_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -60,18 +61,26 @@ class _KeuanganPribadiAppState extends State<KeuanganPribadiApp> {
         ),
         fontFamily: '.SF Pro Text',
       ),
-      home: _isLocked
-          ? PinLockScreen(
-              onUnlocked: () => setState(() => _isLocked = false),
+      home: !ApiService.isLoggedIn
+          ? AuthScreen(
+              onAuthenticated: () => setState(() {}),
             )
-          : MainHomeShell(
-              onThemeChanged: _refreshTheme,
-              onLockRequested: () {
-                if (ApiService.hasPin) {
-                  setState(() => _isLocked = true);
-                }
-              },
-            ),
+          : _isLocked
+              ? PinLockScreen(
+                  onUnlocked: () => setState(() => _isLocked = false),
+                )
+              : MainHomeShell(
+                  onThemeChanged: _refreshTheme,
+                  onLogoutRequested: () async {
+                    await ApiService.logout();
+                    setState(() {});
+                  },
+                  onLockRequested: () {
+                    if (ApiService.hasPin) {
+                      setState(() => _isLocked = true);
+                    }
+                  },
+                ),
     );
   }
 }
@@ -241,11 +250,13 @@ class _PinLockScreenState extends State<PinLockScreen> {
 class MainHomeShell extends StatefulWidget {
   final VoidCallback onThemeChanged;
   final VoidCallback onLockRequested;
+  final VoidCallback onLogoutRequested;
 
   const MainHomeShell({
     super.key,
     required this.onThemeChanged,
     required this.onLockRequested,
+    required this.onLogoutRequested,
   });
 
   @override
@@ -420,6 +431,22 @@ class _MainHomeShellState extends State<MainHomeShell> {
               onPressed: widget.onLockRequested,
               icon: Icon(CupertinoIcons.lock_fill, size: 19, color: textColor),
             ),
+          IconButton(
+            tooltip: 'Ganti Akun / Logout (${ApiService.currentUser?.name ?? ""})',
+            onPressed: widget.onLogoutRequested,
+            icon: CircleAvatar(
+              radius: 13,
+              backgroundColor: const Color(0xFF10B981),
+              child: Text(
+                ApiService.currentUser?.initials ?? 'U',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+          ),
           IconButton(
             tooltip: 'Refresh Data',
             onPressed: _triggerRefresh,

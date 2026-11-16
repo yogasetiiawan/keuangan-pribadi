@@ -106,6 +106,116 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
+  Future<void> _showAddWalletDialog() async {
+    final nameCtrl = TextEditingController();
+    final initBalCtrl = TextEditingController();
+    String chosenColor = '#3B82F6';
+    String chosenIcon = 'bank';
+
+    await showDialog(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20)),
+              title: const Text('Tambah Dompet / Rekening',
+                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      controller: nameCtrl,
+                      decoration: InputDecoration(
+                        labelText: 'Nama Dompet / Bank / E-Wallet',
+                        hintText: 'Contoh: BCA, Mandiri, GoPay, ShopeePay...',
+                        border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12)),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: initBalCtrl,
+                      keyboardType: TextInputType.number,
+                      inputFormatters: [
+                        FilteringTextInputFormatter.digitsOnly,
+                        RupiahInputFormatter(),
+                      ],
+                      decoration: InputDecoration(
+                        labelText: 'Saldo Awal (Opsional)',
+                        prefixText: 'Rp ',
+                        hintText: '0',
+                        border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12)),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    Wrap(
+                      spacing: 8,
+                      children: [
+                        '#10B981',
+                        '#3B82F6',
+                        '#8B5CF6',
+                        '#F59E0B',
+                        '#EC4899'
+                      ].map((hex) {
+                        final c = CurrencyHelper.hexToColor(hex);
+                        final sel = hex == chosenColor;
+                        return GestureDetector(
+                          onTap: () => setModalState(() => chosenColor = hex),
+                          child: Container(
+                            width: 32,
+                            height: 32,
+                            decoration: BoxDecoration(
+                              color: c,
+                              shape: BoxShape.circle,
+                              border: sel
+                                  ? Border.all(color: Colors.black, width: 2.5)
+                                  : null,
+                            ),
+                            child: sel
+                                ? const Icon(Icons.check,
+                                    color: Colors.white, size: 16)
+                                : null,
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  child: const Text('Batal'),
+                ),
+                ElevatedButton(
+                  onPressed: () async {
+                    if (nameCtrl.text.trim().isEmpty) return;
+                    final raw =
+                        initBalCtrl.text.replaceAll(RegExp(r'[^0-9]'), '');
+                    final initBal = double.tryParse(raw) ?? 0;
+                    await ApiService.createWallet(
+                      name: nameCtrl.text.trim(),
+                      icon: chosenIcon,
+                      color: chosenColor,
+                      initialBalance: initBal,
+                    );
+                    if (ctx.mounted) Navigator.of(ctx).pop();
+                    _loadDashboard();
+                  },
+                  child: const Text('Simpan'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
   void _changeMonth(int delta) {
     HapticFeedback.selectionClick();
     int m = widget.selectedMonth + delta;
@@ -122,6 +232,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cardBg = isDark ? const Color(0xFF1E293B) : Colors.white;
+    final borderColor =
+        isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0);
+    final textColor = isDark ? Colors.white : const Color(0xFF0F172A);
+    final mutedColor =
+        isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B);
+
     if (_isLoading) {
       return const Center(child: CupertinoActivityIndicator(radius: 16));
     }
@@ -136,20 +254,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
               const Icon(CupertinoIcons.wifi_exclamationmark,
                   size: 48, color: Color(0xFFEF4444)),
               const SizedBox(height: 12),
-              const Text(
+              Text(
                 'Gagal Memuat Data Dashboard',
                 style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.w700,
-                  color: Color(0xFF0F172A),
+                  color: textColor,
                 ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                '$_error',
-                textAlign: TextAlign.center,
-                style:
-                    const TextStyle(fontSize: 12.5, color: Color(0xFF64748B)),
               ),
               const SizedBox(height: 16),
               ElevatedButton.icon(
@@ -180,9 +291,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   padding:
                       const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                    color: cardBg,
                     borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                    border: Border.all(color: borderColor),
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
@@ -190,7 +301,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       IconButton(
                         constraints: const BoxConstraints(),
                         padding: const EdgeInsets.all(6),
-                        icon: const Icon(CupertinoIcons.chevron_left, size: 17),
+                        icon: Icon(CupertinoIcons.chevron_left,
+                            size: 17, color: textColor),
                         onPressed: () => _changeMonth(-1),
                       ),
                       AnimatedSwitcher(
@@ -201,10 +313,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           padding: const EdgeInsets.symmetric(horizontal: 8),
                           child: Text(
                             '${CurrencyHelper.monthName(widget.selectedMonth)} ${widget.selectedYear}',
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontWeight: FontWeight.w700,
                               fontSize: 14,
-                              color: Color(0xFF0F172A),
+                              color: textColor,
                             ),
                           ),
                         ),
@@ -212,8 +324,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       IconButton(
                         constraints: const BoxConstraints(),
                         padding: const EdgeInsets.all(6),
-                        icon:
-                            const Icon(CupertinoIcons.chevron_right, size: 17),
+                        icon: Icon(CupertinoIcons.chevron_right,
+                            size: 17, color: textColor),
                         onPressed: () => _changeMonth(1),
                       ),
                     ],
@@ -278,7 +390,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
           const SizedBox(height: 16),
 
-          // Kartu Saldo Utama dengan Animasi Angka Berjalan (Rolling Counter)
+          // Kartu Saldo Utama + Tombol Sensor Saldo (Privacy Mode)
           FadeSlideTransitionCard(
             index: 1,
             child: Container(
@@ -308,13 +420,37 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text(
-                        'Total Saldo Bersih',
-                        style: TextStyle(
-                          color: Color(0xFF94A3B8),
-                          fontSize: 13.5,
-                          fontWeight: FontWeight.w500,
-                        ),
+                      Row(
+                        children: [
+                          const Text(
+                            'Total Saldo Bersih',
+                            style: TextStyle(
+                              color: Color(0xFF94A3B8),
+                              fontSize: 13.5,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          InkWell(
+                            onTap: () async {
+                              HapticFeedback.selectionClick();
+                              await ApiService.setBalanceHidden(
+                                  !ApiService.isBalanceHidden);
+                              setState(() {});
+                            },
+                            borderRadius: BorderRadius.circular(20),
+                            child: Padding(
+                              padding: const EdgeInsets.all(4),
+                              child: Icon(
+                                ApiService.isBalanceHidden
+                                    ? CupertinoIcons.eye_slash_fill
+                                    : CupertinoIcons.eye_fill,
+                                size: 17,
+                                color: const Color(0xFF94A3B8),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                       Container(
                         padding: const EdgeInsets.symmetric(
@@ -329,7 +465,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 size: 13, color: Color(0xFF38BDF8)),
                             SizedBox(width: 5),
                             Text(
-                              'Google Sheets Connected',
+                              'Google Sheets',
                               style: TextStyle(
                                 color: Colors.white,
                                 fontSize: 11,
@@ -462,15 +598,114 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
           const SizedBox(height: 18),
 
-          // Grafik Bulanan
+          // FITUR 1: Kartu Multi-Dompet / Rekening (Horizontal Scroll)
           FadeSlideTransitionCard(
             index: 2,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Saldo per Dompet & Rekening',
+                      style: TextStyle(
+                        fontSize: 15.5,
+                        fontWeight: FontWeight.w700,
+                        color: textColor,
+                      ),
+                    ),
+                    TextButton.icon(
+                      onPressed: _showAddWalletDialog,
+                      icon: const Icon(CupertinoIcons.add_circled, size: 15),
+                      label: const Text('Tambah Dompet',
+                          style: TextStyle(fontSize: 12.5)),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                SizedBox(
+                  height: 92,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: d.wallets.length,
+                    separatorBuilder: (_, __) => const SizedBox(width: 10),
+                    itemBuilder: (context, idx) {
+                      final w = d.wallets[idx];
+                      final wColor = CurrencyHelper.hexToColor(w.color);
+                      return Container(
+                        width: 165,
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: cardBg,
+                          borderRadius: BorderRadius.circular(18),
+                          border: Border.all(color: borderColor),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Row(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.all(6),
+                                  decoration: BoxDecoration(
+                                    color: wColor.withValues(alpha: 0.14),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Icon(
+                                    CurrencyHelper.iconFromName(w.icon),
+                                    size: 15,
+                                    color: wColor,
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    w.name,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 12.5,
+                                      fontWeight: FontWeight.w700,
+                                      color: mutedColor,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            Text(
+                              CurrencyHelper.formatRupiah(
+                                w.currentBalance,
+                                isHidden: ApiService.isBalanceHidden,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w800,
+                                color: textColor,
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 18),
+
+          // Grafik Bulanan
+          FadeSlideTransitionCard(
+            index: 3,
             child: Container(
               padding: const EdgeInsets.all(18),
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: cardBg,
                 borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: const Color(0xFFE2E8F0)),
+                border: Border.all(color: borderColor),
               ),
               child: MonthlyBarChartWidget(points: d.monthlyChart),
             ),
@@ -478,25 +713,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
           const SizedBox(height: 18),
 
-          // Grafik Donut Kategori Pengeluaran
+          // Grafik Donut Kategori Pengeluaran & Indikator Budget
           FadeSlideTransitionCard(
-            index: 3,
+            index: 4,
             child: Container(
               padding: const EdgeInsets.all(18),
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: cardBg,
                 borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: const Color(0xFFE2E8F0)),
+                border: Border.all(color: borderColor),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    'Distribusi Pengeluaran per Kategori',
+                  Text(
+                    'Distribusi Pengeluaran & Status Budget',
                     style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w700,
-                      color: Color(0xFF0F172A),
+                      color: textColor,
                     ),
                   ),
                   const SizedBox(height: 14),
@@ -511,35 +746,35 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
           const SizedBox(height: 18),
 
-          // Transaksi Terbaru dengan Tanggal Format Indonesia ("16 November 2026")
+          // Transaksi Terbaru dengan Tanggal Format Indonesia ("16 November 2026") & Label Dompet
           FadeSlideTransitionCard(
-            index: 4,
+            index: 5,
             child: Container(
               padding: const EdgeInsets.all(18),
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: cardBg,
                 borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: const Color(0xFFE2E8F0)),
+                border: Border.all(color: borderColor),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
+                  Text(
                     'Transaksi Terbaru Bulan Ini',
                     style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w700,
-                      color: Color(0xFF0F172A),
+                      color: textColor,
                     ),
                   ),
                   const SizedBox(height: 12),
                   if (d.recentTransactions.isEmpty)
-                    const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 20),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 20),
                       child: Center(
                         child: Text(
                           'Belum ada transaksi pada bulan ini',
-                          style: TextStyle(color: Color(0xFF94A3B8)),
+                          style: TextStyle(color: mutedColor),
                         ),
                       ),
                     )
@@ -553,7 +788,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             (isIncome ? '#10B981' : '#EF4444'),
                       );
                       return FadeSlideTransitionCard(
-                        index: 4 + idx,
+                        index: 5 + idx,
                         child: InkWell(
                           onTap: () {
                             HapticFeedback.selectionClick();
@@ -580,7 +815,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                   width: 42,
                                   height: 42,
                                   decoration: BoxDecoration(
-                                    color: catColor.withValues(alpha: 0.12),
+                                    color: catColor.withValues(alpha: 0.14),
                                     borderRadius: BorderRadius.circular(12),
                                   ),
                                   child: Icon(
@@ -601,10 +836,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                             ? trx.description
                                             : (trx.category?.name ??
                                                 'Transaksi'),
-                                        style: const TextStyle(
+                                        style: TextStyle(
                                           fontWeight: FontWeight.w700,
                                           fontSize: 14,
-                                          color: Color(0xFF0F172A),
+                                          color: textColor,
                                         ),
                                       ),
                                       const SizedBox(height: 3),
@@ -612,11 +847,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                         children: [
                                           Flexible(
                                             child: Text(
-                                              '${trx.category?.name ?? "Lainnya"} • ${CurrencyHelper.formatIndonesianDate(trx.transactionDate)}',
+                                              '${trx.walletName} • ${CurrencyHelper.formatIndonesianDate(trx.transactionDate)}',
                                               overflow: TextOverflow.ellipsis,
-                                              style: const TextStyle(
+                                              style: TextStyle(
                                                 fontSize: 12,
-                                                color: Color(0xFF64748B),
+                                                color: mutedColor,
                                               ),
                                             ),
                                           ),
@@ -636,7 +871,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 ),
                                 const SizedBox(width: 8),
                                 Text(
-                                  '${isIncome ? "+" : "-"}${CurrencyHelper.formatRupiah(trx.amount)}',
+                                  '${isIncome ? "+" : "-"}${CurrencyHelper.formatRupiah(trx.amount, isHidden: ApiService.isBalanceHidden)}',
                                   style: TextStyle(
                                     fontWeight: FontWeight.w800,
                                     fontSize: 14,

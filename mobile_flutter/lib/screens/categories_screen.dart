@@ -1,5 +1,6 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../models/finance_models.dart';
 import '../services/api_service.dart';
 
@@ -20,8 +21,75 @@ class CategoriesScreen extends StatefulWidget {
 class _CategoriesScreenState extends State<CategoriesScreen> {
   String _selectedType = 'expense';
 
+  Future<void> _showEditBudgetDialog(CategoryModel cat) async {
+    final budgetCtrl = TextEditingController(
+      text: cat.monthlyBudget > 0
+          ? CurrencyHelper.formatThousands(cat.monthlyBudget)
+          : '',
+    );
+
+    await showDialog(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: Text(
+            'Batas Anggaran: ${cat.name}',
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Masukkan batas maksimal pengeluaran per bulan (isi 0 untuk tanpa batas):',
+                style: TextStyle(fontSize: 12.5, color: Color(0xFF64748B)),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: budgetCtrl,
+                keyboardType: TextInputType.number,
+                inputFormatters: [
+                  FilteringTextInputFormatter.digitsOnly,
+                  RupiahInputFormatter(),
+                ],
+                decoration: InputDecoration(
+                  labelText: 'Batas Bulanan (Rp)',
+                  prefixText: 'Rp ',
+                  hintText: 'Contoh: 1.000.000',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('Batal'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                final raw = budgetCtrl.text.replaceAll(RegExp(r'[^0-9]'), '');
+                final budget = double.tryParse(raw) ?? 0;
+                HapticFeedback.mediumImpact();
+                await ApiService.updateCategoryBudget(cat.id, budget);
+                if (ctx.mounted) Navigator.of(ctx).pop();
+                widget.onCategoriesUpdated();
+              },
+              child: const Text('Simpan Anggaran'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   Future<void> _showAddDialog() async {
     final nameCtrl = TextEditingController();
+    final budgetCtrl = TextEditingController();
     String chosenColor = '#EF4444';
     String chosenIcon = 'restaurant';
 
@@ -63,8 +131,8 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
                 _selectedType == 'expense'
                     ? 'Tambah Kategori Pengeluaran'
                     : 'Tambah Kategori Pemasukan',
-                style: const TextStyle(
-                    fontSize: 17, fontWeight: FontWeight.w700),
+                style:
+                    const TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
               ),
               content: SingleChildScrollView(
                 child: Column(
@@ -81,6 +149,25 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
                         ),
                       ),
                     ),
+                    if (_selectedType == 'expense') ...[
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: budgetCtrl,
+                        keyboardType: TextInputType.number,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.digitsOnly,
+                          RupiahInputFormatter(),
+                        ],
+                        decoration: InputDecoration(
+                          labelText: 'Batas Anggaran Bulanan (Opsional)',
+                          prefixText: 'Rp ',
+                          hintText: '500.000',
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 16),
                     const Text('Pilih Warna',
                         style: TextStyle(
@@ -137,9 +224,8 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
                             ),
                             child: Icon(
                               CurrencyHelper.iconFromName(ic),
-                              color: sel
-                                  ? Colors.white
-                                  : const Color(0xFF475569),
+                              color:
+                                  sel ? Colors.white : const Color(0xFF475569),
                               size: 19,
                             ),
                           ),
@@ -157,19 +243,20 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
                 ElevatedButton(
                   onPressed: () async {
                     if (nameCtrl.text.trim().isEmpty) return;
+                    final rawBudget =
+                        budgetCtrl.text.replaceAll(RegExp(r'[^0-9]'), '');
+                    final budget = double.tryParse(rawBudget) ?? 0;
+
                     await ApiService.createCategory(
                       name: nameCtrl.text.trim(),
                       type: _selectedType,
                       icon: chosenIcon,
                       color: chosenColor,
+                      monthlyBudget: budget,
                     );
                     if (ctx.mounted) Navigator.of(ctx).pop();
                     widget.onCategoriesUpdated();
                   },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF0F172A),
-                    foregroundColor: Colors.white,
-                  ),
                   child: const Text('Simpan'),
                 ),
               ],
@@ -182,6 +269,14 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cardBg = isDark ? const Color(0xFF1E293B) : Colors.white;
+    final borderColor =
+        isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0);
+    final textColor = isDark ? Colors.white : const Color(0xFF0F172A);
+    final mutedColor =
+        isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B);
+
     final filtered =
         widget.categories.where((c) => c.type == _selectedType).toList();
 
@@ -197,17 +292,22 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
                   children: const {
                     'expense': Padding(
                       padding: EdgeInsets.symmetric(vertical: 8),
-                      child: Text('Pengeluaran',
-                          style: TextStyle(fontWeight: FontWeight.w600)),
+                      child: Text('Pengeluaran & Budget',
+                          style: TextStyle(
+                              fontWeight: FontWeight.w600, fontSize: 13)),
                     ),
                     'income': Padding(
                       padding: EdgeInsets.symmetric(vertical: 8),
                       child: Text('Pemasukan',
-                          style: TextStyle(fontWeight: FontWeight.w600)),
+                          style: TextStyle(
+                              fontWeight: FontWeight.w600, fontSize: 13)),
                     ),
                   },
                   onValueChanged: (val) {
-                    if (val != null) setState(() => _selectedType = val);
+                    if (val != null) {
+                      HapticFeedback.selectionClick();
+                      setState(() => _selectedType = val);
+                    }
                   },
                 ),
               ),
@@ -239,9 +339,9 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
                 padding:
                     const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  color: cardBg,
                   borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                  border: Border.all(color: borderColor),
                 ),
                 child: Row(
                   children: [
@@ -259,18 +359,49 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
                     ),
                     const SizedBox(width: 12),
                     Expanded(
-                      child: Text(
-                        cat.name,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w700,
-                          fontSize: 15,
-                          color: Color(0xFF0F172A),
-                        ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            cat.name,
+                            style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 15,
+                              color: textColor,
+                            ),
+                          ),
+                          if (cat.type == 'expense') ...[
+                            const SizedBox(height: 3),
+                            Text(
+                              cat.monthlyBudget > 0
+                                  ? '🎯 Anggaran: ${CurrencyHelper.formatRupiah(cat.monthlyBudget)} / bln'
+                                  : 'Belum ada batas anggaran bulanan',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: cat.monthlyBudget > 0
+                                    ? const Color(0xFF10B981)
+                                    : mutedColor,
+                                fontWeight: cat.monthlyBudget > 0
+                                    ? FontWeight.w600
+                                    : FontWeight.normal,
+                              ),
+                            ),
+                          ],
+                        ],
                       ),
                     ),
+                    if (cat.type == 'expense')
+                      TextButton(
+                        onPressed: () => _showEditBudgetDialog(cat),
+                        child: const Text(
+                          'Atur Budget',
+                          style: TextStyle(
+                              fontSize: 12.5, fontWeight: FontWeight.w700),
+                        ),
+                      ),
                     IconButton(
-                      icon: const Icon(CupertinoIcons.trash,
-                          size: 18, color: Color(0xFF94A3B8)),
+                      icon: Icon(CupertinoIcons.trash,
+                          size: 18, color: mutedColor),
                       onPressed: () async {
                         await ApiService.deleteCategory(cat.id);
                         widget.onCategoriesUpdated();

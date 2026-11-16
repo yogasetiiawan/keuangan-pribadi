@@ -1,30 +1,36 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../services/api_service.dart';
 
 class SettingsScreen extends StatefulWidget {
   final VoidCallback onSettingsSaved;
+  final VoidCallback onThemeChanged;
 
-  const SettingsScreen({super.key, required this.onSettingsSaved});
+  const SettingsScreen({
+    super.key,
+    required this.onSettingsSaved,
+    required this.onThemeChanged,
+  });
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  final TextEditingController _serverUrlCtrl = TextEditingController();
   final TextEditingController _webhookUrlCtrl = TextEditingController();
   final TextEditingController _spreadsheetIdCtrl = TextEditingController();
-  final TextEditingController _tabNameCtrl = TextEditingController(text: 'Transaksi');
+  final TextEditingController _tabNameCtrl =
+      TextEditingController(text: 'Transaksi');
 
   bool _isLoading = true;
   bool _isSaving = false;
   bool _isSyncing = false;
+  bool _isPulling = false;
 
   @override
   void initState() {
     super.initState();
-    _serverUrlCtrl.text = ApiService.baseUrl;
     _loadSettings();
   }
 
@@ -48,11 +54,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _saveAll() async {
+    HapticFeedback.mediumImpact();
     setState(() => _isSaving = true);
     try {
-      await ApiService.setBaseUrl(_serverUrlCtrl.text);
-      _serverUrlCtrl.text = ApiService.baseUrl;
-
       await ApiService.saveSettings(
         webhookUrl: _webhookUrlCtrl.text.trim(),
         spreadsheetId: _spreadsheetIdCtrl.text.trim(),
@@ -64,9 +68,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (!mounted) return;
       widget.onSettingsSaved();
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          backgroundColor: Color(0xFF10B981),
-          content: Text('Pengaturan Server & Google Sheets berhasil disimpan!'),
+        SnackBar(
+          behavior: SnackBarBehavior.floating,
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          backgroundColor: const Color(0xFF10B981),
+          content: const Text('✓ Pengaturan Google Sheets berhasil disimpan!'),
         ),
       );
     } catch (e) {
@@ -82,15 +89,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  Future<void> _syncAll() async {
+  Future<void> _syncAllPush() async {
+    HapticFeedback.mediumImpact();
     setState(() => _isSyncing = true);
     try {
+      await ApiService.saveSettings(
+        webhookUrl: _webhookUrlCtrl.text.trim(),
+        spreadsheetId: _spreadsheetIdCtrl.text.trim(),
+        tabName: _tabNameCtrl.text.trim().isEmpty
+            ? 'Transaksi'
+            : _tabNameCtrl.text.trim(),
+      );
       final res = await ApiService.syncToGoogleSheets();
       if (!mounted) return;
       final ok = res['success'] == true;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          backgroundColor: ok ? const Color(0xFF10B981) : Colors.orange.shade800,
+          behavior: SnackBarBehavior.floating,
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          backgroundColor:
+              ok ? const Color(0xFF10B981) : Colors.orange.shade800,
           content: Text((res['message'] ?? 'Sinkronisasi selesai').toString()),
         ),
       );
@@ -108,8 +127,118 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  Future<void> _pullFromSheets() async {
+    HapticFeedback.mediumImpact();
+    setState(() => _isPulling = true);
+    try {
+      await ApiService.saveSettings(
+        webhookUrl: _webhookUrlCtrl.text.trim(),
+        spreadsheetId: _spreadsheetIdCtrl.text.trim(),
+        tabName: _tabNameCtrl.text.trim().isEmpty
+            ? 'Transaksi'
+            : _tabNameCtrl.text.trim(),
+      );
+      final res = await ApiService.pullFromGoogleSheets();
+      if (!mounted) return;
+      final ok = res['success'] == true;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          behavior: SnackBarBehavior.floating,
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          backgroundColor:
+              ok ? const Color(0xFF3B82F6) : Colors.orange.shade800,
+          content: Text((res['message'] ?? 'Selesai menarik data').toString()),
+        ),
+      );
+      widget.onSettingsSaved();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.red.shade700,
+          content: Text('Gagal menarik data: $e'),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isPulling = false);
+    }
+  }
+
+  Future<void> _showPinSetupDialog() async {
+    final pinCtrl = TextEditingController(text: ApiService.pinCode);
+    await showDialog(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: const Text('Kunci Keamanan PIN (4 Digit)',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'Masukkan 4 angka PIN untuk mengunci aplikasi saat dibuka (kosongkan jika ingin menonaktifkan PIN):',
+                style: TextStyle(fontSize: 12.5, color: Color(0xFF64748B)),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: pinCtrl,
+                keyboardType: TextInputType.number,
+                maxLength: 4,
+                obscureText: true,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                decoration: InputDecoration(
+                  labelText: 'PIN 4 Digit',
+                  hintText: 'Contoh: 1234',
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12)),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            if (ApiService.hasPin)
+              TextButton(
+                onPressed: () async {
+                  await ApiService.setPinCode('');
+                  if (ctx.mounted) Navigator.of(ctx).pop();
+                  setState(() {});
+                },
+                child: const Text('Hapus PIN',
+                    style: TextStyle(color: Colors.red)),
+              ),
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('Batal'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                final p = pinCtrl.text.trim();
+                if (p.isNotEmpty && p.length != 4) return;
+                await ApiService.setPinCode(p);
+                if (ctx.mounted) Navigator.of(ctx).pop();
+                setState(() {});
+              },
+              child: const Text('Simpan PIN'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cardBg = isDark ? const Color(0xFF1E293B) : Colors.white;
+    final borderColor =
+        isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0);
+    final textColor = isDark ? Colors.white : const Color(0xFF0F172A);
+    final mutedColor =
+        isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B);
+
     if (_isLoading) {
       return const Center(child: CupertinoActivityIndicator(radius: 15));
     }
@@ -117,82 +246,132 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return ListView(
       padding: const EdgeInsets.fromLTRB(18, 12, 18, 100),
       children: [
+        // FITUR 4 & 5: Tampilan Mode Gelap, Sensor Saldo, & Kunci PIN
         Container(
           padding: const EdgeInsets.all(18),
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: cardBg,
             borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: const Color(0xFFE2E8F0)),
+            border: Border.all(color: borderColor),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Row(
+              Row(
                 children: [
-                  Icon(CupertinoIcons.cloud_fill, color: Color(0xFF3B82F6)),
-                  SizedBox(width: 8),
+                  const Icon(CupertinoIcons.shield_fill,
+                      color: Color(0xFF3B82F6)),
+                  const SizedBox(width: 8),
                   Text(
-                    'Koneksi Backend Laravel',
+                    'Tampilan & Keamanan Privasi',
                     style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w700,
-                      color: Color(0xFF0F172A),
+                      color: textColor,
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 6),
-              const Text(
-                'Jika membuka dari iPhone melalui Wi-Fi rumah/kantor yang sama, ganti localhost dengan IP Laptop Windows Anda (contoh: http://192.168.1.10:8000/api).',
-                style: TextStyle(fontSize: 12.5, color: Color(0xFF64748B)),
-              ),
               const SizedBox(height: 12),
-              TextField(
-                controller: _serverUrlCtrl,
-                decoration: InputDecoration(
-                  labelText: 'URL API Laravel',
-                  hintText: 'http://192.168.1.10:8000/api',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: Text('Mode Gelap (iOS Dark Mode)',
+                    style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14,
+                        color: textColor)),
+                subtitle: Text('Tampilan gelap elegan & hemat baterai OLED',
+                    style: TextStyle(fontSize: 12, color: mutedColor)),
+                value: ApiService.isDarkMode,
+                onChanged: (val) async {
+                  HapticFeedback.selectionClick();
+                  await ApiService.setDarkMode(val);
+                  widget.onThemeChanged();
+                  setState(() {});
+                },
+              ),
+              Divider(color: borderColor),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: Text('Sensor Nominal Saldo (Privacy Mode)',
+                    style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14,
+                        color: textColor)),
+                subtitle: Text('Sembunyikan angka saldo menjadi Rp ••••••••',
+                    style: TextStyle(fontSize: 12, color: mutedColor)),
+                value: ApiService.isBalanceHidden,
+                onChanged: (val) async {
+                  HapticFeedback.selectionClick();
+                  await ApiService.setBalanceHidden(val);
+                  widget.onSettingsSaved();
+                  setState(() {});
+                },
+              ),
+              Divider(color: borderColor),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                title: Text('Kunci Aplikasi dengan PIN 4 Digit',
+                    style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14,
+                        color: textColor)),
+                subtitle: Text(
+                  ApiService.hasPin
+                      ? 'Status: PIN Aktif (••••)'
+                      : 'Status: Belum Diaktifkan',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: ApiService.hasPin
+                        ? const Color(0xFF10B981)
+                        : mutedColor,
                   ),
+                ),
+                trailing: OutlinedButton(
+                  onPressed: _showPinSetupDialog,
+                  child: Text(ApiService.hasPin ? 'Ubah PIN' : 'Pasang PIN'),
                 ),
               ),
             ],
           ),
         ),
         const SizedBox(height: 16),
+
+        // FITUR 3: Sinkronisasi 2 Arah Google Sheets (Push & Pull)
         Container(
           padding: const EdgeInsets.all(18),
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: cardBg,
             borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: const Color(0xFFE2E8F0)),
+            border: Border.all(color: borderColor),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Row(
+              Row(
                 children: [
-                  Icon(CupertinoIcons.table_fill, color: Color(0xFF10B981)),
-                  SizedBox(width: 8),
+                  const Icon(CupertinoIcons.table_fill,
+                      color: Color(0xFF10B981)),
+                  const SizedBox(width: 8),
                   Text(
-                    'Integrasi Google Sheets',
+                    'Sinkronisasi 2 Arah Google Sheets',
                     style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w700,
-                      color: Color(0xFF0F172A),
+                      color: textColor,
                     ),
                   ),
                 ],
               ),
               const SizedBox(height: 8),
-              const Text(
-                'Opsi 1 (Rekomendasi & Tercepat): Tempel kode dari file google-sheets-connector/Code.gs ke menu Extensions > Apps Script di Google Sheet Anda, klik Deploy > Web App, lalu masukkan URL-nya di bawah ini:',
-                style: TextStyle(fontSize: 12.5, color: Color(0xFF64748B)),
+              Text(
+                'Masukkan URL Web App Google Apps Script Anda untuk menyinkronkan data dari iPhone ke Google Sheets maupun sebaliknya:',
+                style: TextStyle(fontSize: 12.5, color: mutedColor),
               ),
               const SizedBox(height: 12),
               TextField(
                 controller: _webhookUrlCtrl,
+                style: TextStyle(color: textColor),
                 decoration: InputDecoration(
                   labelText: 'Google Apps Script Web App URL',
                   hintText: 'https://script.google.com/macros/s/.../exec',
@@ -201,17 +380,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                 ),
               ),
-              const SizedBox(height: 16),
-              const Text(
-                'Opsi 2 (Google Cloud Service Account REST API v4): Masukkan Spreadsheet ID jika Anda menggunakan file google-service-account.json di server Laravel:',
-                style: TextStyle(fontSize: 12.5, color: Color(0xFF64748B)),
-              ),
               const SizedBox(height: 12),
               TextField(
                 controller: _spreadsheetIdCtrl,
+                style: TextStyle(color: textColor),
                 decoration: InputDecoration(
-                  labelText: 'Spreadsheet ID (Opsional)',
-                  hintText: '1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms',
+                  labelText: 'Spreadsheet ID',
+                  hintText: '1-k8FqqSIn_ZrOG7Cw5qFaau96o4j8XoKYPcPjaBy7dw',
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
@@ -220,6 +395,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const SizedBox(height: 12),
               TextField(
                 controller: _tabNameCtrl,
+                style: TextStyle(color: textColor),
                 decoration: InputDecoration(
                   labelText: 'Nama Sheet / Tab',
                   hintText: 'Transaksi',
@@ -228,39 +404,63 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                 ),
               ),
-              const SizedBox(height: 18),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: _isSaving ? null : _saveAll,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF0F172A),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 13),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                  icon: const Icon(CupertinoIcons.floppy_disk, size: 18),
+                  label: Text(_isSaving ? 'Menyimpan...' : 'Simpan Pengaturan'),
+                ),
+              ),
+              const SizedBox(height: 10),
               Row(
                 children: [
                   Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: _isSaving ? null : _saveAll,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF0F172A),
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
+                    child: OutlinedButton.icon(
+                      onPressed: _isSyncing ? null : _syncAllPush,
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFF059669),
+                        side: const BorderSide(color: Color(0xFF10B981)),
+                        padding: const EdgeInsets.symmetric(vertical: 13),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(14),
                         ),
                       ),
-                      icon: const Icon(CupertinoIcons.floppy_disk, size: 18),
-                      label: Text(_isSaving ? 'Menyimpan...' : 'Simpan Pengaturan'),
+                      icon: const Icon(CupertinoIcons.cloud_upload, size: 17),
+                      label: Text(
+                        _isSyncing ? 'Mengirim...' : 'Kirim ke Sheets',
+                        style: const TextStyle(
+                            fontSize: 12.5, fontWeight: FontWeight.w700),
+                      ),
                     ),
                   ),
                   const SizedBox(width: 10),
                   Expanded(
                     child: OutlinedButton.icon(
-                      onPressed: _isSyncing ? null : _syncAll,
+                      onPressed: _isPulling ? null : _pullFromSheets,
                       style: OutlinedButton.styleFrom(
-                        foregroundColor: const Color(0xFF059669),
-                        side: const BorderSide(color: Color(0xFF10B981)),
-                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        foregroundColor: const Color(0xFF2563EB),
+                        side: const BorderSide(color: Color(0xFF3B82F6)),
+                        padding: const EdgeInsets.symmetric(vertical: 13),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(14),
                         ),
                       ),
-                      icon: const Icon(CupertinoIcons.arrow_2_circlepath,
-                          size: 18),
-                      label: Text(_isSyncing ? 'Syncing...' : 'Sync Semua Data'),
+                      icon: const Icon(CupertinoIcons.cloud_download, size: 17),
+                      label: Text(
+                        _isPulling ? 'Menarik...' : 'Tarik dari Sheets',
+                        style: const TextStyle(
+                            fontSize: 12.5, fontWeight: FontWeight.w700),
+                      ),
                     ),
                   ),
                 ],

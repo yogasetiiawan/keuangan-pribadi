@@ -16,7 +16,6 @@ class RupiahInputFormatter extends TextInputFormatter {
       );
     }
 
-    // Hilangkan leading zero berlebih
     final parsed = int.tryParse(digitsOnly) ?? 0;
     if (parsed == 0) {
       return const TextEditingValue(
@@ -48,7 +47,10 @@ class CurrencyHelper {
     return buffer.toString();
   }
 
-  static String formatRupiah(double amount, {bool showPrefix = true}) {
+  static String formatRupiah(double amount, {bool showPrefix = true, bool isHidden = false}) {
+    if (isHidden) {
+      return '${showPrefix ? "Rp " : ""}••••••••';
+    }
     final bool isNegative = amount < 0;
     final formatted = formatThousands(amount);
     final prefix = showPrefix ? 'Rp ' : '';
@@ -124,6 +126,10 @@ class CurrencyHelper {
     switch (name) {
       case 'wallet':
         return Icons.account_balance_wallet_rounded;
+      case 'bank':
+        return Icons.account_balance_rounded;
+      case 'ewallet':
+        return Icons.phone_iphone_rounded;
       case 'laptop':
         return Icons.laptop_mac_rounded;
       case 'trending_up':
@@ -142,10 +148,50 @@ class CurrencyHelper {
         return Icons.movie_creation_rounded;
       case 'medical':
         return Icons.medical_services_rounded;
+      case 'savings':
+        return Icons.savings_rounded;
       default:
         return Icons.category_rounded;
     }
   }
+}
+
+class WalletModel {
+  final int id;
+  final String name;
+  final String icon;
+  final String color;
+  final double initialBalance;
+  final double currentBalance;
+
+  WalletModel({
+    required this.id,
+    required this.name,
+    required this.icon,
+    required this.color,
+    this.initialBalance = 0,
+    this.currentBalance = 0,
+  });
+
+  factory WalletModel.fromJson(Map<String, dynamic> json, {double? computedBalance}) {
+    final initBal = (json['initial_balance'] as num?)?.toDouble() ?? 0.0;
+    return WalletModel(
+      id: (json['id'] as num).toInt(),
+      name: (json['name'] ?? 'Tunai').toString(),
+      icon: (json['icon'] ?? 'wallet').toString(),
+      color: (json['color'] ?? '#10B981').toString(),
+      initialBalance: initBal,
+      currentBalance: computedBalance ?? (json['current_balance'] as num?)?.toDouble() ?? initBal,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'name': name,
+        'icon': icon,
+        'color': color,
+        'initial_balance': initialBalance,
+      };
 }
 
 class CategoryModel {
@@ -154,6 +200,7 @@ class CategoryModel {
   final String type; // 'income' | 'expense'
   final String icon;
   final String color;
+  final double monthlyBudget;
 
   CategoryModel({
     required this.id,
@@ -161,6 +208,7 @@ class CategoryModel {
     required this.type,
     required this.icon,
     required this.color,
+    this.monthlyBudget = 0,
   });
 
   factory CategoryModel.fromJson(Map<String, dynamic> json) {
@@ -170,6 +218,7 @@ class CategoryModel {
       type: (json['type'] ?? 'expense').toString(),
       icon: (json['icon'] ?? 'category').toString(),
       color: (json['color'] ?? '#3B82F6').toString(),
+      monthlyBudget: (json['monthly_budget'] as num?)?.toDouble() ?? 0.0,
     );
   }
 
@@ -179,6 +228,7 @@ class CategoryModel {
         'type': type,
         'icon': icon,
         'color': color,
+        'monthly_budget': monthlyBudget,
       };
 }
 
@@ -189,6 +239,7 @@ class TransactionModel {
   final double amount;
   final String transactionDate;
   final String description;
+  final String walletName;
   final bool isSyncedToSheet;
   final CategoryModel? category;
 
@@ -199,24 +250,120 @@ class TransactionModel {
     required this.amount,
     required this.transactionDate,
     required this.description,
+    this.walletName = 'Tunai',
     this.isSyncedToSheet = false,
     this.category,
   });
 
   factory TransactionModel.fromJson(Map<String, dynamic> json) {
+    String rawDesc = (json['description'] ?? '').toString();
+    String wallet = (json['wallet_name'] ?? '').toString();
+
+    // Ekstrak prefix [Nama Dompet] jika berasal dari sinkronisasi Google Sheets
+    if (wallet.isEmpty && rawDesc.startsWith('[') && rawDesc.contains(']')) {
+      final endIdx = rawDesc.indexOf(']');
+      wallet = rawDesc.substring(1, endIdx).trim();
+      rawDesc = rawDesc.substring(endIdx + 1).trim();
+    }
+    if (wallet.isEmpty) wallet = 'Tunai';
+
     return TransactionModel(
       id: (json['id'] as num).toInt(),
       categoryId: json['category_id'] != null ? (json['category_id'] as num).toInt() : null,
       type: (json['type'] ?? 'expense').toString(),
       amount: (json['amount'] as num).toDouble(),
       transactionDate: (json['transaction_date'] ?? '').toString(),
-      description: (json['description'] ?? '').toString(),
+      description: rawDesc,
+      walletName: wallet,
       isSyncedToSheet: json['is_synced_to_sheet'] == true || json['is_synced_to_sheet'] == 1,
       category: json['category'] != null
           ? CategoryModel.fromJson(Map<String, dynamic>.from(json['category']))
           : null,
     );
   }
+}
+
+class SavingGoalModel {
+  final int id;
+  final String title;
+  final double targetAmount;
+  final double savedAmount;
+  final String color;
+  final String icon;
+
+  SavingGoalModel({
+    required this.id,
+    required this.title,
+    required this.targetAmount,
+    required this.savedAmount,
+    this.color = '#10B981',
+    this.icon = 'savings',
+  });
+
+  double get progress =>
+      targetAmount > 0 ? (savedAmount / targetAmount).clamp(0.0, 1.0) : 0.0;
+
+  factory SavingGoalModel.fromJson(Map<String, dynamic> json) {
+    return SavingGoalModel(
+      id: (json['id'] as num).toInt(),
+      title: (json['title'] ?? '').toString(),
+      targetAmount: (json['target_amount'] as num?)?.toDouble() ?? 0.0,
+      savedAmount: (json['saved_amount'] as num?)?.toDouble() ?? 0.0,
+      color: (json['color'] ?? '#10B981').toString(),
+      icon: (json['icon'] ?? 'savings').toString(),
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'title': title,
+        'target_amount': targetAmount,
+        'saved_amount': savedAmount,
+        'color': color,
+        'icon': icon,
+      };
+}
+
+class RecurringBillModel {
+  final int id;
+  final String title;
+  final double amount;
+  final int? categoryId;
+  final String categoryName;
+  final String walletName;
+  final int dayOfMonth;
+
+  RecurringBillModel({
+    required this.id,
+    required this.title,
+    required this.amount,
+    this.categoryId,
+    required this.categoryName,
+    this.walletName = 'Rekening Bank',
+    this.dayOfMonth = 1,
+  });
+
+  factory RecurringBillModel.fromJson(Map<String, dynamic> json) {
+    return RecurringBillModel(
+      id: (json['id'] as num).toInt(),
+      title: (json['title'] ?? '').toString(),
+      amount: (json['amount'] as num?)?.toDouble() ?? 0.0,
+      categoryId: (json['category_id'] as num?)?.toInt(),
+      categoryName: (json['category_name'] ?? 'Tagihan & Utilitas').toString(),
+      walletName: (json['wallet_name'] ?? 'Rekening Bank').toString(),
+      dayOfMonth: (json['day_of_month'] as num?)?.toInt() ?? 1,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'title': title,
+        'amount': amount,
+        'category_id': categoryId,
+        'category_name': categoryName,
+        'wallet_name': walletName,
+        'day_of_month': dayOfMonth,
+      };
 }
 
 class CategoryBreakdown {
@@ -226,6 +373,7 @@ class CategoryBreakdown {
   final String icon;
   final double amount;
   final double percentage;
+  final double monthlyBudget;
 
   CategoryBreakdown({
     this.categoryId,
@@ -234,6 +382,7 @@ class CategoryBreakdown {
     required this.icon,
     required this.amount,
     required this.percentage,
+    this.monthlyBudget = 0,
   });
 
   factory CategoryBreakdown.fromJson(Map<String, dynamic> json) {
@@ -244,6 +393,7 @@ class CategoryBreakdown {
       icon: (json['icon'] ?? 'category').toString(),
       amount: (json['amount'] as num).toDouble(),
       percentage: (json['percentage'] as num).toDouble(),
+      monthlyBudget: (json['monthly_budget'] as num?)?.toDouble() ?? 0.0,
     );
   }
 }
@@ -300,6 +450,7 @@ class DashboardData {
   final double totalBalance;
   final double monthlyIncome;
   final double monthlyExpense;
+  final List<WalletModel> wallets;
   final List<CategoryBreakdown> categoryBreakdown;
   final List<MonthlyChartPoint> monthlyChart;
   final List<TransactionModel> recentTransactions;
@@ -311,6 +462,7 @@ class DashboardData {
     required this.totalBalance,
     required this.monthlyIncome,
     required this.monthlyExpense,
+    this.wallets = const [],
     required this.categoryBreakdown,
     required this.monthlyChart,
     required this.recentTransactions,
@@ -324,6 +476,9 @@ class DashboardData {
       totalBalance: (json['total_balance'] as num).toDouble(),
       monthlyIncome: (json['monthly_income'] as num).toDouble(),
       monthlyExpense: (json['monthly_expense'] as num).toDouble(),
+      wallets: (json['wallets'] as List? ?? [])
+          .map((e) => WalletModel.fromJson(Map<String, dynamic>.from(e)))
+          .toList(),
       categoryBreakdown: (json['category_breakdown'] as List? ?? [])
           .map((e) => CategoryBreakdown.fromJson(Map<String, dynamic>.from(e)))
           .toList(),

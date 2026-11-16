@@ -20,10 +20,12 @@ class AddTransactionSheet extends StatefulWidget {
   State<AddTransactionSheet> createState() => _AddTransactionSheetState();
 }
 
-class _AddTransactionSheetState extends State<AddTransactionSheet>
-    with SingleTickerProviderStateMixin {
-  late String _type;
+class _AddTransactionSheetState extends State<AddTransactionSheet> {
+  late String _type; // 'expense' | 'income' | 'transfer'
   int? _selectedCategoryId;
+  String _selectedWallet = 'Tunai';
+  String _transferToWallet = 'E-Wallet';
+  List<WalletModel> _wallets = [];
   late TextEditingController _amountController;
   late TextEditingController _descController;
   late DateTime _selectedDate;
@@ -35,6 +37,7 @@ class _AddTransactionSheetState extends State<AddTransactionSheet>
     final existing = widget.existingTransaction;
     _type = existing?.type ?? 'expense';
     _selectedCategoryId = existing?.categoryId;
+    _selectedWallet = existing?.walletName ?? 'Tunai';
     _amountController = TextEditingController(
       text: existing != null
           ? CurrencyHelper.formatThousands(existing.amount)
@@ -48,9 +51,27 @@ class _AddTransactionSheetState extends State<AddTransactionSheet>
         : DateTime.now();
 
     _ensureCategorySelection();
+    _loadWallets();
+  }
+
+  Future<void> _loadWallets() async {
+    final w = await ApiService.fetchWallets();
+    if (mounted && w.isNotEmpty) {
+      setState(() {
+        _wallets = w;
+        if (!w.any((item) => item.name == _selectedWallet)) {
+          _selectedWallet = w.first.name;
+        }
+        if (w.length > 1) {
+          _transferToWallet =
+              w.firstWhere((item) => item.name != _selectedWallet, orElse: () => w.last).name;
+        }
+      });
+    }
   }
 
   void _ensureCategorySelection() {
+    if (_type == 'transfer') return;
     final filtered = widget.categories.where((c) => c.type == _type).toList();
     if (filtered.isNotEmpty &&
         !filtered.any((c) => c.id == _selectedCategoryId)) {
@@ -84,9 +105,40 @@ class _AddTransactionSheetState extends State<AddTransactionSheet>
       return;
     }
 
+    if (_type == 'transfer' && _selectedWallet == _transferToWallet) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Dompet asal dan tujuan harus berbeda')),
+      );
+      return;
+    }
+
     HapticFeedback.mediumImpact();
     setState(() => _isSaving = true);
     try {
+      if (_type == 'transfer') {
+        await ApiService.transferBetweenWallets(
+          fromWallet: _selectedWallet,
+          toWallet: _transferToWallet,
+          amount: amount,
+          date: _formatDateIso(_selectedDate),
+          note: _descController.text.trim(),
+        );
+        if (!mounted) return;
+        Navigator.of(context).pop();
+        widget.onSaved();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+            backgroundColor: const Color(0xFF3B82F6),
+            content: Text(
+              '✓ Transfer $_selectedWallet → $_transferToWallet berhasil dicatat!',
+            ),
+          ),
+        );
+        return;
+      }
+
       Map<String, dynamic> res;
       if (widget.existingTransaction != null) {
         res = await ApiService.updateTransaction(
@@ -96,6 +148,7 @@ class _AddTransactionSheetState extends State<AddTransactionSheet>
           amount: amount,
           transactionDate: _formatDateIso(_selectedDate),
           description: _descController.text.trim(),
+          walletName: _selectedWallet,
         );
       } else {
         res = await ApiService.createTransaction(
@@ -104,6 +157,7 @@ class _AddTransactionSheetState extends State<AddTransactionSheet>
           amount: amount,
           transactionDate: _formatDateIso(_selectedDate),
           description: _descController.text.trim(),
+          walletName: _selectedWallet,
         );
       }
 
@@ -141,16 +195,26 @@ class _AddTransactionSheetState extends State<AddTransactionSheet>
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final sheetBg = isDark ? const Color(0xFF1E293B) : Colors.white;
+    final fieldBg = isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC);
+    final borderColor =
+        isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0);
+    final textColor = isDark ? Colors.white : const Color(0xFF0F172A);
+    final mutedColor =
+        isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B);
+
     final filteredCategories =
         widget.categories.where((c) => c.type == _type).toList();
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
-    final activeAccent = _type == 'expense'
-        ? const Color(0xFFEF4444)
-        : const Color(0xFF10B981);
+
+    Color activeAccent = const Color(0xFFEF4444);
+    if (_type == 'income') activeAccent = const Color(0xFF10B981);
+    if (_type == 'transfer') activeAccent = const Color(0xFF3B82F6);
 
     return TweenAnimationBuilder<double>(
       tween: Tween<double>(begin: 0.94, end: 1.0),
-      duration: const Duration(milliseconds: 280),
+      duration: const Duration(milliseconds: 260),
       curve: Curves.easeOutBack,
       builder: (context, scaleVal, child) {
         return Transform.scale(
@@ -161,9 +225,9 @@ class _AddTransactionSheetState extends State<AddTransactionSheet>
       },
       child: Container(
         padding: EdgeInsets.fromLTRB(20, 14, 20, 24 + bottomInset),
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+        decoration: BoxDecoration(
+          color: sheetBg,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
         ),
         child: SingleChildScrollView(
           child: Column(
@@ -175,7 +239,7 @@ class _AddTransactionSheetState extends State<AddTransactionSheet>
                   width: 42,
                   height: 5,
                   decoration: BoxDecoration(
-                    color: const Color(0xFFE2E8F0),
+                    color: borderColor,
                     borderRadius: BorderRadius.circular(10),
                   ),
                 ),
@@ -188,16 +252,16 @@ class _AddTransactionSheetState extends State<AddTransactionSheet>
                     widget.existingTransaction != null
                         ? 'Edit Transaksi'
                         : 'Catat Transaksi Baru',
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 19,
                       fontWeight: FontWeight.w800,
-                      color: Color(0xFF0F172A),
+                      color: textColor,
                     ),
                   ),
                   IconButton(
                     onPressed: () => Navigator.of(context).pop(),
-                    icon: const Icon(CupertinoIcons.xmark_circle_fill,
-                        color: Color(0xFF94A3B8)),
+                    icon: Icon(CupertinoIcons.xmark_circle_fill,
+                        color: mutedColor),
                   ),
                 ],
               ),
@@ -206,7 +270,7 @@ class _AddTransactionSheetState extends State<AddTransactionSheet>
                 width: double.infinity,
                 child: CupertinoSlidingSegmentedControl<String>(
                   groupValue: _type,
-                  backgroundColor: const Color(0xFFF1F5F9),
+                  backgroundColor: fieldBg,
                   thumbColor: activeAccent,
                   children: {
                     'expense': Padding(
@@ -214,10 +278,9 @@ class _AddTransactionSheetState extends State<AddTransactionSheet>
                       child: Text(
                         'Pengeluaran',
                         style: TextStyle(
+                          fontSize: 13,
                           fontWeight: FontWeight.w700,
-                          color: _type == 'expense'
-                              ? Colors.white
-                              : const Color(0xFF475569),
+                          color: _type == 'expense' ? Colors.white : mutedColor,
                         ),
                       ),
                     ),
@@ -226,13 +289,25 @@ class _AddTransactionSheetState extends State<AddTransactionSheet>
                       child: Text(
                         'Pemasukan',
                         style: TextStyle(
+                          fontSize: 13,
                           fontWeight: FontWeight.w700,
-                          color: _type == 'income'
-                              ? Colors.white
-                              : const Color(0xFF475569),
+                          color: _type == 'income' ? Colors.white : mutedColor,
                         ),
                       ),
                     ),
+                    if (widget.existingTransaction == null)
+                      'transfer': Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        child: Text(
+                          'Transfer',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            color:
+                                _type == 'transfer' ? Colors.white : mutedColor,
+                          ),
+                        ),
+                      ),
                   },
                   onValueChanged: (val) {
                     if (val == null) return;
@@ -245,136 +320,190 @@ class _AddTransactionSheetState extends State<AddTransactionSheet>
                 ),
               ),
               const SizedBox(height: 18),
-              const Text(
+              Text(
                 'Nominal (Rp)',
                 style: TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
-                  color: Color(0xFF64748B),
+                  color: mutedColor,
                 ),
               ),
               const SizedBox(height: 8),
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 250),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(
-                      color: activeAccent.withValues(alpha: 0.08),
-                      blurRadius: 12,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
+              TextField(
+                controller: _amountController,
+                keyboardType: TextInputType.number,
+                inputFormatters: [
+                  FilteringTextInputFormatter.digitsOnly,
+                  RupiahInputFormatter(),
+                ],
+                style: TextStyle(
+                  fontSize: 25,
+                  fontWeight: FontWeight.w800,
+                  color: activeAccent,
                 ),
-                child: TextField(
-                  controller: _amountController,
-                  keyboardType: TextInputType.number,
-                  inputFormatters: [
-                    FilteringTextInputFormatter.digitsOnly,
-                    RupiahInputFormatter(),
-                  ],
-                  style: TextStyle(
+                decoration: InputDecoration(
+                  prefixText: 'Rp ',
+                  prefixStyle: TextStyle(
                     fontSize: 25,
                     fontWeight: FontWeight.w800,
-                    color: activeAccent,
+                    color: activeAccent.withValues(alpha: 0.75),
                   ),
-                  decoration: InputDecoration(
-                    prefixText: 'Rp ',
-                    prefixStyle: TextStyle(
-                      fontSize: 25,
-                      fontWeight: FontWeight.w800,
-                      color: activeAccent.withValues(alpha: 0.75),
-                    ),
-                    hintText: '0',
-                    hintStyle: const TextStyle(
-                      fontSize: 25,
-                      fontWeight: FontWeight.w800,
-                      color: Color(0xFFCBD5E1),
-                    ),
-                    filled: true,
-                    fillColor: const Color(0xFFF8FAFC),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(16),
-                      borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(16),
-                      borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(16),
-                      borderSide: BorderSide(color: activeAccent, width: 1.8),
-                    ),
+                  hintText: '0',
+                  hintStyle: TextStyle(
+                    fontSize: 25,
+                    fontWeight: FontWeight.w800,
+                    color: mutedColor.withValues(alpha: 0.4),
+                  ),
+                  filled: true,
+                  fillColor: fieldBg,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(16),
+                    borderSide: BorderSide(color: borderColor),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(16),
+                    borderSide: BorderSide(color: borderColor),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(16),
+                    borderSide: BorderSide(color: activeAccent, width: 1.8),
                   ),
                 ),
               ),
               const SizedBox(height: 16),
-              const Text(
-                'Kategori',
+
+              // Pilihan Dompet / Rekening
+              Text(
+                _type == 'transfer' ? 'Dari Dompet Asal' : 'Dompet / Rekening',
                 style: TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
-                  color: Color(0xFF64748B),
+                  color: mutedColor,
                 ),
               ),
               const SizedBox(height: 8),
-              AnimatedSwitcher(
-                duration: const Duration(milliseconds: 250),
-                child: Wrap(
-                  key: ValueKey('cats_$_type'),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: (_wallets.isNotEmpty
+                        ? _wallets.map((w) => w.name).toList()
+                        : ['Tunai', 'Rekening Bank', 'E-Wallet'])
+                    .map((wName) {
+                  final sel = wName == _selectedWallet;
+                  return ChoiceChip(
+                    selected: sel,
+                    label: Text(wName),
+                    selectedColor: const Color(0xFF0F172A),
+                    backgroundColor: fieldBg,
+                    labelStyle: TextStyle(
+                      color: sel ? Colors.white : textColor,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13,
+                    ),
+                    onSelected: (_) {
+                      HapticFeedback.selectionClick();
+                      setState(() => _selectedWallet = wName);
+                    },
+                  );
+                }).toList(),
+              ),
+
+              if (_type == 'transfer') ...[
+                const SizedBox(height: 16),
+                Text(
+                  'Ke Dompet Tujuan',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: mutedColor,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: (_wallets.isNotEmpty
+                          ? _wallets.map((w) => w.name).toList()
+                          : ['Tunai', 'Rekening Bank', 'E-Wallet'])
+                      .map((wName) {
+                    final sel = wName == _transferToWallet;
+                    return ChoiceChip(
+                      selected: sel,
+                      label: Text(wName),
+                      selectedColor: const Color(0xFF3B82F6),
+                      backgroundColor: fieldBg,
+                      labelStyle: TextStyle(
+                        color: sel ? Colors.white : textColor,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13,
+                      ),
+                      onSelected: (_) {
+                        HapticFeedback.selectionClick();
+                        setState(() => _transferToWallet = wName);
+                      },
+                    );
+                  }).toList(),
+                ),
+              ] else ...[
+                const SizedBox(height: 16),
+                Text(
+                  'Kategori',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: mutedColor,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
                   spacing: 8,
                   runSpacing: 8,
                   children: filteredCategories.map((cat) {
                     final isSelected = cat.id == _selectedCategoryId;
                     final color = CurrencyHelper.hexToColor(cat.color);
-                    return AnimatedScale(
-                      scale: isSelected ? 1.04 : 1.0,
-                      duration: const Duration(milliseconds: 180),
-                      child: ChoiceChip(
-                        selected: isSelected,
-                        label: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              CurrencyHelper.iconFromName(cat.icon),
-                              size: 16,
-                              color: isSelected ? Colors.white : color,
-                            ),
-                            const SizedBox(width: 6),
-                            Text(cat.name),
-                          ],
-                        ),
-                        selectedColor: color,
-                        backgroundColor: color.withValues(alpha: 0.1),
-                        labelStyle: TextStyle(
-                          color: isSelected
-                              ? Colors.white
-                              : const Color(0xFF1E293B),
-                          fontWeight: FontWeight.w600,
-                          fontSize: 13,
-                        ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          side: BorderSide(
-                            color: isSelected ? color : Colors.transparent,
+                    return ChoiceChip(
+                      selected: isSelected,
+                      label: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            CurrencyHelper.iconFromName(cat.icon),
+                            size: 16,
+                            color: isSelected ? Colors.white : color,
                           ),
-                        ),
-                        onSelected: (_) {
-                          HapticFeedback.selectionClick();
-                          setState(() => _selectedCategoryId = cat.id);
-                        },
+                          const SizedBox(width: 6),
+                          Text(cat.name),
+                        ],
                       ),
+                      selectedColor: color,
+                      backgroundColor: color.withValues(alpha: 0.12),
+                      labelStyle: TextStyle(
+                        color: isSelected ? Colors.white : textColor,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        side: BorderSide(
+                          color: isSelected ? color : Colors.transparent,
+                        ),
+                      ),
+                      onSelected: (_) {
+                        HapticFeedback.selectionClick();
+                        setState(() => _selectedCategoryId = cat.id);
+                      },
                     );
                   }).toList(),
                 ),
-              ),
+              ],
+
               const SizedBox(height: 16),
-              const Text(
+              Text(
                 'Tanggal Transaksi',
                 style: TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
-                  color: Color(0xFF64748B),
+                  color: mutedColor,
                 ),
               ),
               const SizedBox(height: 8),
@@ -396,9 +525,9 @@ class _AddTransactionSheetState extends State<AddTransactionSheet>
                   padding: const EdgeInsets.symmetric(
                       horizontal: 14, vertical: 14),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFF8FAFC),
+                    color: fieldBg,
                     borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                    border: Border.all(color: borderColor),
                   ),
                   child: Row(
                     children: [
@@ -407,10 +536,10 @@ class _AddTransactionSheetState extends State<AddTransactionSheet>
                       const SizedBox(width: 10),
                       Text(
                         CurrencyHelper.formatDateTimeObj(_selectedDate),
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontWeight: FontWeight.w700,
                           fontSize: 14.5,
-                          color: Color(0xFF0F172A),
+                          color: textColor,
                         ),
                       ),
                       const Spacer(),
@@ -427,28 +556,30 @@ class _AddTransactionSheetState extends State<AddTransactionSheet>
                 ),
               ),
               const SizedBox(height: 16),
-              const Text(
+              Text(
                 'Catatan / Keterangan',
                 style: TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
-                  color: Color(0xFF64748B),
+                  color: mutedColor,
                 ),
               ),
               const SizedBox(height: 8),
               TextField(
                 controller: _descController,
+                style: TextStyle(color: textColor),
                 decoration: InputDecoration(
-                  hintText: 'Contoh: Makan siang, Gaji bulanan, Tagihan Wi-Fi...',
+                  hintText: 'Contoh: Makan siang, Gaji bulanan, Top-Up...',
+                  hintStyle: TextStyle(color: mutedColor),
                   filled: true,
-                  fillColor: const Color(0xFFF8FAFC),
+                  fillColor: fieldBg,
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(14),
-                    borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                    borderSide: BorderSide(color: borderColor),
                   ),
                   enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(14),
-                    borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                    borderSide: BorderSide(color: borderColor),
                   ),
                 ),
               ),
@@ -459,7 +590,7 @@ class _AddTransactionSheetState extends State<AddTransactionSheet>
                 child: ElevatedButton.icon(
                   onPressed: _isSaving ? null : _submit,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF0F172A),
+                    backgroundColor: activeAccent,
                     foregroundColor: Colors.white,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(16),
@@ -478,8 +609,10 @@ class _AddTransactionSheetState extends State<AddTransactionSheet>
                       : const Icon(CupertinoIcons.checkmark_alt_circle_fill),
                   label: Text(
                     _isSaving
-                        ? 'Menyimpan & Sinkronisasi...'
-                        : 'Simpan Transaksi',
+                        ? 'Menyimpan...'
+                        : (_type == 'transfer'
+                            ? 'Simpan Transfer Antar Dompet'
+                            : 'Simpan Transaksi'),
                     style: const TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w700,

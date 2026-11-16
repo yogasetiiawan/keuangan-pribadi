@@ -43,6 +43,37 @@ function setupSheets() {
   return { sheetTrx, sheetSum };
 }
 
+function doGet(e) {
+  const { sheetTrx } = setupSheets();
+  const action = (e && e.parameter && e.parameter.action) ? e.parameter.action : 'pull';
+  if (action === 'pull') {
+    const lastRow = sheetTrx.getLastRow();
+    const transactions = [];
+    if (lastRow >= 2) {
+      const rows = sheetTrx.getRange(2, 1, lastRow - 1, 7).getValues();
+      for (let i = 0; i < rows.length; i++) {
+        const r = rows[i];
+        if (!r[0] && !r[4]) continue;
+        let dateStr = r[1];
+        if (dateStr instanceof Date) {
+          dateStr = Utilities.formatDate(dateStr, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+        }
+        transactions.push({
+          id: r[0],
+          transaction_date: String(dateStr),
+          type: String(r[2]),
+          category_name: String(r[3]),
+          amount: Number(r[4]) || 0,
+          description: String(r[5] || ''),
+          updated_at: String(r[6] || '')
+        });
+      }
+    }
+    return jsonResponse({ success: true, transactions: transactions });
+  }
+  return jsonResponse({ success: true, message: 'KeuanganKu Connector Active' });
+}
+
 function doPost(e) {
   try {
     const payload = JSON.parse(e.postData.contents);

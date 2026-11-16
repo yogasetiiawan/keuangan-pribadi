@@ -26,15 +26,17 @@ class TransactionsScreen extends StatefulWidget {
 
 class _TransactionsScreenState extends State<TransactionsScreen> {
   List<TransactionModel> _transactions = [];
+  List<String> _walletNames = ['Semua', 'Tunai', 'Rekening Bank', 'E-Wallet'];
   bool _isLoading = true;
   String _filterType = 'all'; // 'all' | 'income' | 'expense'
+  String _filterWallet = 'Semua';
   String _searchQuery = '';
   final TextEditingController _searchController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
-    _loadTransactions();
+    _loadWalletsAndTransactions();
   }
 
   @override
@@ -46,6 +48,16 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
     }
   }
 
+  Future<void> _loadWalletsAndTransactions() async {
+    final w = await ApiService.fetchWallets();
+    if (mounted && w.isNotEmpty) {
+      setState(() {
+        _walletNames = ['Semua', ...w.map((e) => e.name)];
+      });
+    }
+    await _loadTransactions();
+  }
+
   Future<void> _loadTransactions() async {
     setState(() => _isLoading = true);
     try {
@@ -54,6 +66,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
         year: widget.selectedYear,
         type: _filterType == 'all' ? null : _filterType,
         search: _searchQuery,
+        walletName: _filterWallet,
       );
       if (mounted) {
         setState(() {
@@ -93,6 +106,14 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cardBg = isDark ? const Color(0xFF1E293B) : Colors.white;
+    final borderColor =
+        isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0);
+    final textColor = isDark ? Colors.white : const Color(0xFF0F172A);
+    final mutedColor =
+        isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B);
+
     return Column(
       children: [
         Padding(
@@ -101,7 +122,8 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
             children: [
               CupertinoSearchTextField(
                 controller: _searchController,
-                placeholder: 'Cari catatan atau kategori...',
+                style: TextStyle(color: textColor),
+                placeholder: 'Cari catatan, kategori, atau dompet...',
                 onSubmitted: (val) {
                   _searchQuery = val.trim();
                   _loadTransactions();
@@ -143,6 +165,34 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                   },
                 ),
               ),
+              const SizedBox(height: 10),
+              SizedBox(
+                height: 34,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: _walletNames.length,
+                  separatorBuilder: (_, __) => const SizedBox(width: 8),
+                  itemBuilder: (context, idx) {
+                    final wName = _walletNames[idx];
+                    final sel = wName == _filterWallet;
+                    return ChoiceChip(
+                      selected: sel,
+                      label: Text(wName, style: const TextStyle(fontSize: 12)),
+                      selectedColor: const Color(0xFF0F172A),
+                      backgroundColor: cardBg,
+                      labelStyle: TextStyle(
+                        color: sel ? Colors.white : textColor,
+                        fontWeight: FontWeight.w600,
+                      ),
+                      onSelected: (_) {
+                        HapticFeedback.selectionClick();
+                        setState(() => _filterWallet = wName);
+                        _loadTransactions();
+                      },
+                    );
+                  },
+                ),
+              ),
             ],
           ),
         ),
@@ -150,10 +200,10 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
           child: _isLoading
               ? const Center(child: CupertinoActivityIndicator(radius: 15))
               : _transactions.isEmpty
-                  ? const Center(
+                  ? Center(
                       child: Text(
                         'Tidak ada transaksi yang ditemukan',
-                        style: TextStyle(color: Color(0xFF94A3B8)),
+                        style: TextStyle(color: mutedColor),
                       ),
                     )
                   : RefreshIndicator(
@@ -207,10 +257,9 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                                 child: Container(
                                   padding: const EdgeInsets.all(14),
                                   decoration: BoxDecoration(
-                                    color: Colors.white,
+                                    color: cardBg,
                                     borderRadius: BorderRadius.circular(16),
-                                    border: Border.all(
-                                        color: const Color(0xFFE2E8F0)),
+                                    border: Border.all(color: borderColor),
                                   ),
                                   child: Row(
                                     children: [
@@ -219,7 +268,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                                         height: 44,
                                         decoration: BoxDecoration(
                                           color:
-                                              catColor.withValues(alpha: 0.12),
+                                              catColor.withValues(alpha: 0.14),
                                           borderRadius:
                                               BorderRadius.circular(12),
                                         ),
@@ -241,10 +290,10 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                                                   ? trx.description
                                                   : (trx.category?.name ??
                                                       'Transaksi'),
-                                              style: const TextStyle(
+                                              style: TextStyle(
                                                 fontWeight: FontWeight.w700,
                                                 fontSize: 14.5,
-                                                color: Color(0xFF0F172A),
+                                                color: textColor,
                                               ),
                                             ),
                                             const SizedBox(height: 3),
@@ -252,12 +301,12 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                                               children: [
                                                 Flexible(
                                                   child: Text(
-                                                    '${trx.category?.name ?? "Lainnya"} • ${CurrencyHelper.formatIndonesianDate(trx.transactionDate)}',
+                                                    '${trx.walletName} • ${trx.category?.name ?? "Lainnya"} • ${CurrencyHelper.formatIndonesianDate(trx.transactionDate)}',
                                                     overflow:
                                                         TextOverflow.ellipsis,
-                                                    style: const TextStyle(
+                                                    style: TextStyle(
                                                       fontSize: 12,
-                                                      color: Color(0xFF64748B),
+                                                      color: mutedColor,
                                                     ),
                                                   ),
                                                 ),
@@ -270,7 +319,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                                                   size: 13,
                                                   color: trx.isSyncedToSheet
                                                       ? const Color(0xFF10B981)
-                                                      : const Color(0xFF94A3B8),
+                                                      : mutedColor,
                                                 ),
                                               ],
                                             ),
@@ -279,7 +328,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                                       ),
                                       const SizedBox(width: 8),
                                       Text(
-                                        '${isIncome ? "+" : "-"}${CurrencyHelper.formatRupiah(trx.amount)}',
+                                        '${isIncome ? "+" : "-"}${CurrencyHelper.formatRupiah(trx.amount, isHidden: ApiService.isBalanceHidden)}',
                                         style: TextStyle(
                                           fontWeight: FontWeight.w800,
                                           fontSize: 14.5,

@@ -1,8 +1,9 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../models/finance_models.dart';
+import '../services/api_service.dart';
 
-/// Animasi angka berjalan (Rolling Number Counter) untuk Nominal Rupiah
+/// Animasi angka berjalan (Rolling Number Counter) + Dukungan Sensor Saldo (Privacy Mode)
 class AnimatedRupiahText extends StatelessWidget {
   final double value;
   final TextStyle style;
@@ -19,6 +20,13 @@ class AnimatedRupiahText extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (ApiService.isBalanceHidden) {
+      return Text(
+        '${prefix}Rp ••••••••',
+        style: style,
+      );
+    }
+
     return TweenAnimationBuilder<double>(
       tween: Tween<double>(begin: 0, end: value),
       duration: duration,
@@ -33,7 +41,7 @@ class AnimatedRupiahText extends StatelessWidget {
   }
 }
 
-/// Animasi masuk bertahap (Staggered Fade + Slide Up) untuk kartu & item transaksi
+/// Animasi masuk bertahap (Staggered Fade + Slide Up)
 class FadeSlideTransitionCard extends StatelessWidget {
   final Widget child;
   final int index;
@@ -46,16 +54,16 @@ class FadeSlideTransitionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final delayMs = (index * 70).clamp(0, 500);
+    final delayMs = (index * 65).clamp(0, 450);
     return TweenAnimationBuilder<double>(
       tween: Tween<double>(begin: 0.0, end: 1.0),
-      duration: Duration(milliseconds: 450 + delayMs),
+      duration: Duration(milliseconds: 420 + delayMs),
       curve: Curves.easeOutCubic,
       builder: (context, val, childWidget) {
         return Opacity(
           opacity: val.clamp(0.0, 1.0),
           child: Transform.translate(
-            offset: Offset(0, 22 * (1 - val)),
+            offset: Offset(0, 20 * (1 - val)),
             child: childWidget,
           ),
         );
@@ -72,10 +80,18 @@ class MonthlyBarChartWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textColor = isDark ? Colors.white : const Color(0xFF0F172A);
+    final mutedColor =
+        isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B);
+
     if (points.isEmpty) {
-      return const SizedBox(
+      return SizedBox(
         height: 180,
-        child: Center(child: Text('Belum ada data grafik bulanan')),
+        child: Center(
+          child: Text('Belum ada data grafik bulanan',
+              style: TextStyle(color: mutedColor)),
+        ),
       );
     }
 
@@ -91,19 +107,19 @@ class MonthlyBarChartWidget extends StatelessWidget {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            const Text(
+            Text(
               'Tren 6 Bulan Terakhir',
               style: TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.w700,
-                color: Color(0xFF0F172A),
+                color: textColor,
               ),
             ),
             Row(
               children: [
-                _legendDot(const Color(0xFF10B981), 'Pemasukan'),
+                _legendDot(const Color(0xFF10B981), 'Pemasukan', mutedColor),
                 const SizedBox(width: 12),
-                _legendDot(const Color(0xFFEF4444), 'Pengeluaran'),
+                _legendDot(const Color(0xFFEF4444), 'Pengeluaran', mutedColor),
               ],
             ),
           ],
@@ -179,10 +195,10 @@ class MonthlyBarChartWidget extends StatelessWidget {
                           const SizedBox(height: 8),
                           Text(
                             p.label,
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 12,
                               fontWeight: FontWeight.w600,
-                              color: Color(0xFF64748B),
+                              color: mutedColor,
                             ),
                           ),
                         ],
@@ -198,7 +214,7 @@ class MonthlyBarChartWidget extends StatelessWidget {
     );
   }
 
-  Widget _legendDot(Color color, String label) {
+  Widget _legendDot(Color color, String label, Color textColor) {
     return Row(
       children: [
         Container(
@@ -212,9 +228,9 @@ class MonthlyBarChartWidget extends StatelessWidget {
         const SizedBox(width: 5),
         Text(
           label,
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 12,
-            color: Color(0xFF64748B),
+            color: textColor,
             fontWeight: FontWeight.w500,
           ),
         ),
@@ -235,13 +251,20 @@ class CategoryDonutChartWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textColor = isDark ? Colors.white : const Color(0xFF0F172A);
+    final mutedColor =
+        isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B);
+    final trackColor =
+        isDark ? const Color(0xFF334155) : const Color(0xFFF1F5F9);
+
     if (breakdown.isEmpty || totalExpense <= 0) {
-      return const Padding(
-        padding: EdgeInsets.symmetric(vertical: 24),
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 24),
         child: Center(
           child: Text(
             'Belum ada pengeluaran di bulan ini',
-            style: TextStyle(color: Color(0xFF94A3B8)),
+            style: TextStyle(color: mutedColor),
           ),
         ),
       );
@@ -261,25 +284,29 @@ class CategoryDonutChartWidget extends StatelessWidget {
                 children: [
                   CustomPaint(
                     size: const Size(150, 150),
-                    painter: _DonutChartPainter(breakdown, progress),
+                    painter:
+                        _DonutChartPainter(breakdown, progress, trackColor),
                   ),
                   Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Text(
+                      Text(
                         'Total Keluar',
                         style: TextStyle(
                           fontSize: 11,
-                          color: Color(0xFF64748B),
+                          color: mutedColor,
                         ),
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        CurrencyHelper.formatShortRupiah(totalExpense * progress),
-                        style: const TextStyle(
+                        ApiService.isBalanceHidden
+                            ? 'Rp •••••'
+                            : CurrencyHelper.formatShortRupiah(
+                                totalExpense * progress),
+                        style: TextStyle(
                           fontSize: 15,
                           fontWeight: FontWeight.bold,
-                          color: Color(0xFF0F172A),
+                          color: textColor,
                         ),
                       ),
                     ],
@@ -290,9 +317,24 @@ class CategoryDonutChartWidget extends StatelessWidget {
             const SizedBox(height: 16),
             ...breakdown.map((item) {
               final color = CurrencyHelper.hexToColor(item.color);
+              final hasBudget = item.monthlyBudget > 0;
+              final budgetRatio =
+                  hasBudget ? (item.amount / item.monthlyBudget) : 0.0;
+
+              Color budgetBadgeColor = const Color(0xFF10B981);
+              String budgetLabel = 'Aman';
+              if (budgetRatio >= 1.0) {
+                budgetBadgeColor = const Color(0xFFEF4444);
+                budgetLabel = 'Overbudget!';
+              } else if (budgetRatio >= 0.8) {
+                budgetBadgeColor = const Color(0xFFF59E0B);
+                budgetLabel = 'Hampir Habis';
+              }
+
               return Padding(
-                padding: const EdgeInsets.only(bottom: 12),
+                padding: const EdgeInsets.only(bottom: 14),
                 child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Row(
                       children: [
@@ -300,7 +342,7 @@ class CategoryDonutChartWidget extends StatelessWidget {
                           width: 32,
                           height: 32,
                           decoration: BoxDecoration(
-                            color: color.withValues(alpha: 0.14),
+                            color: color.withValues(alpha: 0.16),
                             borderRadius: BorderRadius.circular(9),
                           ),
                           child: Icon(
@@ -311,30 +353,47 @@ class CategoryDonutChartWidget extends StatelessWidget {
                         ),
                         const SizedBox(width: 10),
                         Expanded(
-                          child: Text(
-                            item.categoryName,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w600,
-                              fontSize: 13.5,
-                              color: Color(0xFF1E293B),
-                            ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                item.categoryName,
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 13.5,
+                                  color: textColor,
+                                ),
+                              ),
+                              if (hasBudget)
+                                Text(
+                                  'Anggaran: ${CurrencyHelper.formatRupiah(item.monthlyBudget, isHidden: ApiService.isBalanceHidden)} ($budgetLabel)',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                    color: budgetBadgeColor,
+                                  ),
+                                ),
+                            ],
                           ),
                         ),
                         Text(
                           '${(item.percentage * progress).toStringAsFixed(1)}%',
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.w600,
-                            color: Color(0xFF64748B),
+                            color: mutedColor,
                           ),
                         ),
                         const SizedBox(width: 10),
                         Text(
-                          CurrencyHelper.formatRupiah(item.amount),
-                          style: const TextStyle(
+                          CurrencyHelper.formatRupiah(
+                            item.amount,
+                            isHidden: ApiService.isBalanceHidden,
+                          ),
+                          style: TextStyle(
                             fontWeight: FontWeight.w700,
                             fontSize: 13.5,
-                            color: Color(0xFF0F172A),
+                            color: textColor,
                           ),
                         ),
                       ],
@@ -343,11 +402,15 @@ class CategoryDonutChartWidget extends StatelessWidget {
                     ClipRRect(
                       borderRadius: BorderRadius.circular(4),
                       child: LinearProgressIndicator(
-                        value: ((item.percentage / 100.0) * progress)
-                            .clamp(0.0, 1.0),
+                        value: hasBudget
+                            ? (budgetRatio * progress).clamp(0.0, 1.0)
+                            : ((item.percentage / 100.0) * progress)
+                                .clamp(0.0, 1.0),
                         minHeight: 6,
-                        backgroundColor: const Color(0xFFF1F5F9),
-                        valueColor: AlwaysStoppedAnimation<Color>(color),
+                        backgroundColor: trackColor,
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          hasBudget ? budgetBadgeColor : color,
+                        ),
                       ),
                     ),
                   ],
@@ -364,8 +427,9 @@ class CategoryDonutChartWidget extends StatelessWidget {
 class _DonutChartPainter extends CustomPainter {
   final List<CategoryBreakdown> items;
   final double progress;
+  final Color trackColor;
 
-  _DonutChartPainter(this.items, this.progress);
+  _DonutChartPainter(this.items, this.progress, this.trackColor);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -373,9 +437,8 @@ class _DonutChartPainter extends CustomPainter {
     final radius = math.min(size.width, size.height) / 2 - 14;
     final rect = Rect.fromCircle(center: center, radius: radius);
 
-    // Track lingkaran latar belakang
     final bgPaint = Paint()
-      ..color = const Color(0xFFF1F5F9)
+      ..color = trackColor
       ..style = PaintingStyle.stroke
       ..strokeWidth = 22;
     canvas.drawCircle(center, radius, bgPaint);

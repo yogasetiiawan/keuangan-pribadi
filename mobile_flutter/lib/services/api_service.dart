@@ -602,17 +602,39 @@ class ApiService {
   }
 
   static Future<bool> _pushDirectToWebhook(String url, Map<String, dynamic> payload) async {
+    final client = http.Client();
     try {
-      final res = await http
-          .post(
-            Uri.parse(url),
-            headers: {'Content-Type': 'application/json'},
-            body: jsonEncode(payload),
-          )
-          .timeout(const Duration(seconds: 15));
-      return res.statusCode >= 200 && res.statusCode < 400;
+      final req = http.Request('POST', Uri.parse(url.trim()))
+        ..followRedirects = false
+        ..headers['Content-Type'] = 'text/plain;charset=utf-8'
+        ..body = jsonEncode(payload);
+
+      final streamedRes = await client.send(req).timeout(const Duration(seconds: 15));
+      final status = streamedRes.statusCode;
+
+      if (status >= 200 && status < 300) {
+        return true;
+      }
+
+      // Google Apps Script mengeksekusi doPost() lalu mengembalikan HTTP 302 ke script.googleusercontent.com
+      if (status == 302 || status == 301 || status == 307 || status == 308) {
+        final location = streamedRes.headers['location'] ?? '';
+        if (location.contains('accounts.google.com')) {
+          // Berarti "Who has access" belum diatur ke "Anyone"
+          return false;
+        }
+        if (location.isNotEmpty) {
+          final getRes = await client.get(Uri.parse(location)).timeout(const Duration(seconds: 10));
+          return getRes.statusCode >= 200 && getRes.statusCode < 400;
+        }
+        return true;
+      }
+
+      return false;
     } catch (_) {
       return false;
+    } finally {
+      client.close();
     }
   }
 

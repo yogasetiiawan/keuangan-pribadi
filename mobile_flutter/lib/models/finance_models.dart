@@ -1,9 +1,41 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+
+/// Formatter otomatis saat mengetik nominal Rupiah dengan pemisah titik (contoh: 1.500.000)
+class RupiahInputFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    final digitsOnly = newValue.text.replaceAll(RegExp(r'[^0-9]'), '');
+    if (digitsOnly.isEmpty) {
+      return const TextEditingValue(
+        text: '',
+        selection: TextSelection.collapsed(offset: 0),
+      );
+    }
+
+    // Hilangkan leading zero berlebih
+    final parsed = int.tryParse(digitsOnly) ?? 0;
+    if (parsed == 0) {
+      return const TextEditingValue(
+        text: '0',
+        selection: TextSelection.collapsed(offset: 1),
+      );
+    }
+
+    final formatted = CurrencyHelper.formatThousands(parsed);
+    return TextEditingValue(
+      text: formatted,
+      selection: TextSelection.collapsed(offset: formatted.length),
+    );
+  }
+}
 
 class CurrencyHelper {
-  static String formatRupiah(double amount, {bool showPrefix = true}) {
-    final bool isNegative = amount < 0;
-    final int val = amount.abs().round();
+  static String formatThousands(num value) {
+    final int val = value.abs().round();
     final String str = val.toString();
     final StringBuffer buffer = StringBuffer();
 
@@ -13,9 +45,14 @@ class CurrencyHelper {
       }
       buffer.write(str[i]);
     }
+    return buffer.toString();
+  }
 
+  static String formatRupiah(double amount, {bool showPrefix = true}) {
+    final bool isNegative = amount < 0;
+    final formatted = formatThousands(amount);
     final prefix = showPrefix ? 'Rp ' : '';
-    return '${isNegative ? "-" : ""}$prefix${buffer.toString()}';
+    return '${isNegative ? "-" : ""}$prefix$formatted';
   }
 
   static String formatShortRupiah(double amount) {
@@ -48,6 +85,30 @@ class CurrencyHelper {
   static String monthName(int month) {
     if (month < 1 || month > 12) return '';
     return monthNames[month - 1];
+  }
+
+  /// Mengubah tanggal "2026-11-16" menjadi "16 November 2026"
+  static String formatIndonesianDate(String rawDate) {
+    if (rawDate.trim().isEmpty) return '-';
+    final clean = rawDate.trim().split('T').first.split(' ').first;
+    final parts = clean.split('-');
+    if (parts.length == 3) {
+      final year = int.tryParse(parts[0]);
+      final month = int.tryParse(parts[1]);
+      final day = int.tryParse(parts[2]);
+      if (year != null && month != null && day != null && month >= 1 && month <= 12) {
+        return '$day ${monthNames[month - 1]} $year';
+      }
+    }
+    final parsed = DateTime.tryParse(rawDate);
+    if (parsed != null) {
+      return '${parsed.day} ${monthNames[parsed.month - 1]} ${parsed.year}';
+    }
+    return rawDate;
+  }
+
+  static String formatDateTimeObj(DateTime dt) {
+    return '${dt.day} ${monthNames[dt.month - 1]} ${dt.year}';
   }
 
   static Color hexToColor(String hex) {

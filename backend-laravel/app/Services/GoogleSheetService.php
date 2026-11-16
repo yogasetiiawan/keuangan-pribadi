@@ -135,37 +135,66 @@ class GoogleSheetService
 
     protected function sendWebhook(array $payload): array
     {
-        $ch = curl_init($this->webhookUrl);
+        $ch = curl_init(trim($this->webhookUrl));
         curl_setopt_array($ch, [
             CURLOPT_POST => true,
             CURLOPT_POSTFIELDS => json_encode($payload),
-            CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'Accept: application/json'],
+            CURLOPT_HTTPHEADER => ['Content-Type: text/plain;charset=utf-8', 'Accept: application/json'],
             CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_FOLLOWLOCATION => true,
-            CURLOPT_MAXREDIRS => 5,
+            CURLOPT_FOLLOWLOCATION => false,
+            CURLOPT_HEADER => true,
             CURLOPT_TIMEOUT => 15,
             CURLOPT_SSL_VERIFYPEER => false,
         ]);
 
-        $response = curl_exec($ch);
+        $rawResponse = curl_exec($ch);
         $error = curl_error($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $headerSize = curl_getinfo($ch, CURLINFO_HEADER_SIZE);
+        $redirectUrl = curl_getinfo($ch, CURLINFO_REDIRECT_URL);
         curl_close($ch);
 
-        if ($response === false) {
+        if ($rawResponse === false) {
             return ['success' => false, 'message' => 'Gagal menghubungi Google Apps Script: ' . $error];
         }
 
-        $decoded = json_decode($response, true);
+        $headers = substr($rawResponse, 0, $headerSize);
+        $body = substr($rawResponse, $headerSize);
+
+        if (empty($redirectUrl) && preg_match('/^Location:\s*(.+)$/mi', $headers, $m)) {
+            $redirectUrl = trim($m[1]);
+        }
+
+        if ($httpCode >= 300 && $httpCode < 400 && !empty($redirectUrl)) {
+            if (str_contains($redirectUrl, 'accounts.google.com')) {
+                return [
+                    'success' => false,
+                    'message' => 'Akses ditolak Google. Pastikan di Apps Script bagian "Who has access" dipilih "Anyone (Siapa saja)".',
+                ];
+            }
+
+            $chGet = curl_init($redirectUrl);
+            curl_setopt_array($chGet, [
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_FOLLOWLOCATION => true,
+                CURLOPT_TIMEOUT => 15,
+                CURLOPT_SSL_VERIFYPEER => false,
+            ]);
+            $body = (string) curl_exec($chGet);
+            $httpCode = curl_getinfo($chGet, CURLINFO_HTTP_CODE);
+            curl_close($chGet);
+        }
+
+        $decoded = json_decode($body, true);
         if (is_array($decoded) && isset($decoded['success'])) {
             return $decoded;
         }
 
         if ($httpCode >= 200 && $httpCode < 400) {
-            return ['success' => true, 'message' => 'Data terkirim ke Google Sheets'];
+            return ['success' => true, 'message' => 'Data berhasil disinkronkan ke Google Sheets!'];
         }
 
-        return ['success' => false, 'message' => "HTTP $httpCode dari Google Sheets"];
+        return ['success' => false, 'message' => "Gagal sinkron ke Google Sheets (HTTP $httpCode)"];
     }
 
     protected function appendViaServiceAccount(array $rows): array

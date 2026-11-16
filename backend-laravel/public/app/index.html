@@ -301,7 +301,7 @@
       </div>
       <div class="form-group">
         <label>Nominal (Rp)</label>
-        <input type="number" id="trxAmount" placeholder="Contoh: 150000" />
+        <input type="text" inputmode="numeric" id="trxAmount" placeholder="Contoh: 150.000" oninput="formatAmountInput(this)" style="font-size:20px;font-weight:800;" />
       </div>
       <div class="form-group">
         <label>Kategori</label>
@@ -329,6 +329,24 @@
     function formatRp(num) {
       const n = Math.round(Number(num) || 0);
       return 'Rp ' + n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+    }
+
+    function formatAmountInput(input) {
+      const digits = input.value.replace(/[^0-9]/g, '');
+      if (!digits) { input.value = ''; return; }
+      input.value = Number(digits).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+    }
+
+    function formatIndoDate(raw) {
+      if (!raw) return '-';
+      const parts = String(raw).split('T')[0].split('-');
+      if (parts.length === 3) {
+        const y = parseInt(parts[0], 10);
+        const m = parseInt(parts[1], 10);
+        const d = parseInt(parts[2], 10);
+        if (m >= 1 && m <= 12) return `${d} ${MONTHS[m - 1]} ${y}`;
+      }
+      return raw;
     }
 
     function switchTab(tab) {
@@ -443,7 +461,7 @@
             <div class="trx-dot" style="background:${color}22;color:${color};">${isInc ? '↓' : '↑'}</div>
             <div>
               <div class="trx-title">${t.description || catName}</div>
-              <div class="trx-sub">${catName} • ${t.transaction_date} ${t.is_synced_to_sheet ? '✓' : ''}</div>
+              <div class="trx-sub">${catName} • ${formatIndoDate(t.transaction_date)} ${t.is_synced_to_sheet ? '✓' : ''}</div>
             </div>
           </div>
           <div style="display:flex;align-items:center;">
@@ -480,7 +498,8 @@
     }
 
     async function submitTransaction() {
-      const amount = Number(document.getElementById('trxAmount').value);
+      const rawAmount = document.getElementById('trxAmount').value.replace(/[^0-9]/g, '');
+      const amount = Number(rawAmount);
       const category_id = Number(document.getElementById('trxCategory').value) || null;
       const transaction_date = document.getElementById('trxDate').value;
       const description = document.getElementById('trxDesc').value;

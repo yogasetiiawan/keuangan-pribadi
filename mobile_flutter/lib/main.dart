@@ -1,5 +1,6 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'models/finance_models.dart';
 import 'services/api_service.dart';
 import 'screens/dashboard_screen.dart';
@@ -20,7 +21,7 @@ class KeuanganPribadiApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Keuangan Pribadi',
+      title: 'KeuanganKu',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         useMaterial3: true,
@@ -66,11 +67,13 @@ class _MainHomeShellState extends State<MainHomeShell> {
   }
 
   void _triggerRefresh() {
+    HapticFeedback.lightImpact();
     _loadCategories();
     setState(() => _refreshSeed++);
   }
 
   void _openAddTransaction() {
+    HapticFeedback.mediumImpact();
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -80,6 +83,44 @@ class _MainHomeShellState extends State<MainHomeShell> {
         onSaved: _triggerRefresh,
       ),
     );
+  }
+
+  Widget _buildActiveScreen() {
+    switch (_currentIndex) {
+      case 0:
+        return DashboardScreen(
+          key: ValueKey('dash_$_refreshSeed'),
+          categories: _categories,
+          selectedMonth: _selectedMonth,
+          selectedYear: _selectedYear,
+          onMonthYearChanged: (m, y) {
+            setState(() {
+              _selectedMonth = m;
+              _selectedYear = y;
+            });
+          },
+          onRefreshRequested: _triggerRefresh,
+        );
+      case 1:
+        return TransactionsScreen(
+          key: ValueKey('trx_$_refreshSeed'),
+          categories: _categories,
+          selectedMonth: _selectedMonth,
+          selectedYear: _selectedYear,
+          onChanged: _triggerRefresh,
+        );
+      case 2:
+        return CategoriesScreen(
+          key: ValueKey('cat_$_refreshSeed'),
+          categories: _categories,
+          onCategoriesUpdated: _triggerRefresh,
+        );
+      default:
+        return SettingsScreen(
+          key: ValueKey('set_$_refreshSeed'),
+          onSettingsSaved: _triggerRefresh,
+        );
+    }
   }
 
   @override
@@ -113,12 +154,26 @@ class _MainHomeShellState extends State<MainHomeShell> {
               ),
             ),
             const SizedBox(width: 10),
-            Text(
-              titles[_currentIndex],
-              style: const TextStyle(
-                fontWeight: FontWeight.w800,
-                fontSize: 18,
-                color: Color(0xFF0F172A),
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 220),
+              transitionBuilder: (child, anim) => FadeTransition(
+                opacity: anim,
+                child: SlideTransition(
+                  position: Tween<Offset>(
+                    begin: const Offset(0, 0.25),
+                    end: Offset.zero,
+                  ).animate(anim),
+                  child: child,
+                ),
+              ),
+              child: Text(
+                titles[_currentIndex],
+                key: ValueKey('title_$_currentIndex'),
+                style: const TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 18,
+                  color: Color(0xFF0F172A),
+                ),
               ),
             ),
           ],
@@ -133,37 +188,23 @@ class _MainHomeShellState extends State<MainHomeShell> {
           const SizedBox(width: 6),
         ],
       ),
-      body: IndexedStack(
-        index: _currentIndex,
-        children: [
-          DashboardScreen(
-            key: ValueKey('dash_$_refreshSeed'),
-            categories: _categories,
-            selectedMonth: _selectedMonth,
-            selectedYear: _selectedYear,
-            onMonthYearChanged: (m, y) {
-              setState(() {
-                _selectedMonth = m;
-                _selectedYear = y;
-              });
-            },
-            onRefreshRequested: _triggerRefresh,
-          ),
-          TransactionsScreen(
-            key: ValueKey('trx_$_refreshSeed'),
-            categories: _categories,
-            selectedMonth: _selectedMonth,
-            selectedYear: _selectedYear,
-            onChanged: _triggerRefresh,
-          ),
-          CategoriesScreen(
-            categories: _categories,
-            onCategoriesUpdated: _triggerRefresh,
-          ),
-          SettingsScreen(
-            onSettingsSaved: _triggerRefresh,
-          ),
-        ],
+      body: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 260),
+        switchInCurve: Curves.easeOutCubic,
+        switchOutCurve: Curves.easeInCubic,
+        transitionBuilder: (child, animation) {
+          return FadeTransition(
+            opacity: animation,
+            child: SlideTransition(
+              position: Tween<Offset>(
+                begin: const Offset(0.03, 0),
+                end: Offset.zero,
+              ).animate(animation),
+              child: child,
+            ),
+          );
+        },
+        child: _buildActiveScreen(),
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _openAddTransaction,
@@ -178,10 +219,15 @@ class _MainHomeShellState extends State<MainHomeShell> {
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _currentIndex,
-        onDestinationSelected: (idx) => setState(() => _currentIndex = idx),
+        onDestinationSelected: (idx) {
+          if (idx == _currentIndex) return;
+          HapticFeedback.selectionClick();
+          setState(() => _currentIndex = idx);
+        },
         backgroundColor: Colors.white,
         surfaceTintColor: Colors.white,
         indicatorColor: const Color(0xFFE2E8F0),
+        animationDuration: const Duration(milliseconds: 350),
         destinations: const [
           NavigationDestination(
             icon: Icon(CupertinoIcons.square_grid_2x2),

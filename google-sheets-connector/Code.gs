@@ -1,18 +1,9 @@
 /**
  * ============================================================================
- * GOOGLE APPS SCRIPT - KONEKTOR OTOMATIS KE LARAVEL (OPSIONAL / CARA MUDAH)
+ * GOOGLE APPS SCRIPT - KONEKTOR OTOMATIS KE APLIKASI IOS (KEUANGANKU)
  * ============================================================================
- * Cara Pakai (Tanpa perlu ribet setup Google Cloud Console Service Account):
- * 1. Buka Google Sheets baru di browser Anda.
- * 2. Klik menu Extensions (Ekstensi) -> Apps Script.
- * 3. Hapus semua kode di dalamnya, lalu tempel (paste) seluruh kode ini.
- * 4. Klik tombol "Deploy" (Terapkan) -> "New deployment" (Deployment baru).
- * 5. Pilih jenis: "Web app" (Aplikasi web).
- *    - Execute as: "Me" (Saya)
- *    - Who has access: "Anyone" (Siapa saja)
- * 6. Klik Deploy, salin URL Web App (`https://script.google.com/macros/s/.../exec`),
- *    lalu tempelkan ke file `.env` Laravel pada bagian `GOOGLE_SHEETS_WEBHOOK_URL`
- *    atau langsung melalui menu Pengaturan di aplikasi Flutter!
+ * Sudah disesuaikan dengan Locale Indonesia (pemisah rumus titik koma ';')
+ * dan desain Dashboard Eksekutif pada sheet "Ringkasan" & "Transaksi".
  */
 
 const SHEET_TRANSAKSI = 'Transaksi';
@@ -20,37 +11,35 @@ const SHEET_RINGKASAN = 'Ringkasan';
 
 function setupSheets() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  
-  // 1. Buat / Cek Sheet Transaksi
+
   let sheetTrx = ss.getSheetByName(SHEET_TRANSAKSI);
   if (!sheetTrx) {
     sheetTrx = ss.insertSheet(SHEET_TRANSAKSI);
   }
   if (sheetTrx.getLastRow() === 0) {
-    const headers = ['ID', 'Tanggal', 'Tipe', 'Kategori', 'Nominal (Rp)', 'Catatan', 'Waktu Input'];
+    const headers = [
+      'ID TRANSAKSI',
+      'TANGGAL',
+      'TIPE TRANSAKSI',
+      'KATEGORI',
+      'NOMINAL (RP)',
+      'CATATAN / KETERANGAN',
+      'WAKTU SINKRONISASI'
+    ];
     sheetTrx.getRange(1, 1, 1, headers.length).setValues([headers]);
     sheetTrx.getRange(1, 1, 1, headers.length)
       .setFontWeight('bold')
-      .setBackground('#1E293B')
-      .setFontColor('#FFFFFF');
+      .setBackground('#0F172A')
+      .setFontColor('#FFFFFF')
+      .setHorizontalAlignment('center');
     sheetTrx.setFrozenRows(1);
   }
 
-  // 2. Buat / Cek Sheet Ringkasan
   let sheetSum = ss.getSheetByName(SHEET_RINGKASAN);
   if (!sheetSum) {
     sheetSum = ss.insertSheet(SHEET_RINGKASAN);
   }
-  sheetSum.clear();
-  sheetSum.getRange('A1:B4').setValues([
-    ['Keterangan', 'Total (Rp)'],
-    ['Total Pemasukan', '=SUMIF(Transaksi!C:C, "income", Transaksi!E:E)'],
-    ['Total Pengeluaran', '=SUMIF(Transaksi!C:C, "expense", Transaksi!E:E)'],
-    ['Saldo Akhir', '=B2-B3']
-  ]);
-  sheetSum.getRange('A1:B1').setFontWeight('bold').setBackground('#0F172A').setFontColor('#FFFFFF');
-  sheetSum.getRange('B2:B4').setNumberFormat('#,##0');
-  
+
   return { sheetTrx, sheetSum };
 }
 
@@ -61,7 +50,6 @@ function doPost(e) {
     const { sheetTrx } = setupSheets();
 
     if (action === 'sync_all' && Array.isArray(payload.transactions)) {
-      // Hapus semua baris data kecuali header
       const lastRow = sheetTrx.getLastRow();
       if (lastRow > 1) {
         sheetTrx.getRange(2, 1, lastRow - 1, 7).clearContent();
@@ -77,9 +65,13 @@ function doPost(e) {
           t.updated_at || new Date().toISOString()
         ]);
         sheetTrx.getRange(2, 1, rows.length, 7).setValues(rows);
-        sheetTrx.getRange(2, 5, rows.length, 1).setNumberFormat('#,##0');
+        sheetTrx.getRange(2, 5, rows.length, 1).setNumberFormat('"Rp" #,##0');
       }
-      return jsonResponse({ success: true, message: 'Semua transaksi berhasil disinkronkan', count: payload.transactions.length });
+      return jsonResponse({
+        success: true,
+        message: 'Semua transaksi berhasil disinkronkan',
+        count: payload.transactions.length
+      });
     }
 
     if (action === 'upsert' && payload.transaction) {
@@ -97,13 +89,16 @@ function doPost(e) {
       const rowIndex = findRowById(sheetTrx, t.id);
       if (rowIndex > 0) {
         sheetTrx.getRange(rowIndex, 1, 1, 7).setValues([rowData]);
-        sheetTrx.getRange(rowIndex, 5).setNumberFormat('#,##0');
+        sheetTrx.getRange(rowIndex, 5).setNumberFormat('"Rp" #,##0');
       } else {
         sheetTrx.appendRow(rowData);
         const newRow = sheetTrx.getLastRow();
-        sheetTrx.getRange(newRow, 5).setNumberFormat('#,##0');
+        sheetTrx.getRange(newRow, 5).setNumberFormat('"Rp" #,##0');
       }
-      return jsonResponse({ success: true, message: 'Transaksi berhasil disimpan ke Google Sheet' });
+      return jsonResponse({
+        success: true,
+        message: 'Transaksi berhasil disimpan ke Google Sheet'
+      });
     }
 
     if (action === 'delete' && payload.id) {
@@ -111,7 +106,10 @@ function doPost(e) {
       if (rowIndex > 0) {
         sheetTrx.deleteRow(rowIndex);
       }
-      return jsonResponse({ success: true, message: 'Transaksi berhasil dihapus dari Google Sheet' });
+      return jsonResponse({
+        success: true,
+        message: 'Transaksi berhasil dihapus dari Google Sheet'
+      });
     }
 
     return jsonResponse({ success: false, message: 'Action tidak dikenali' });

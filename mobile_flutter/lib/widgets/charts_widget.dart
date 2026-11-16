@@ -2,6 +2,69 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../models/finance_models.dart';
 
+/// Animasi angka berjalan (Rolling Number Counter) untuk Nominal Rupiah
+class AnimatedRupiahText extends StatelessWidget {
+  final double value;
+  final TextStyle style;
+  final String prefix;
+  final Duration duration;
+
+  const AnimatedRupiahText({
+    super.key,
+    required this.value,
+    required this.style,
+    this.prefix = '',
+    this.duration = const Duration(milliseconds: 900),
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween<double>(begin: 0, end: value),
+      duration: duration,
+      curve: Curves.easeOutCubic,
+      builder: (context, animatedVal, _) {
+        return Text(
+          '$prefix${CurrencyHelper.formatRupiah(animatedVal)}',
+          style: style,
+        );
+      },
+    );
+  }
+}
+
+/// Animasi masuk bertahap (Staggered Fade + Slide Up) untuk kartu & item transaksi
+class FadeSlideTransitionCard extends StatelessWidget {
+  final Widget child;
+  final int index;
+
+  const FadeSlideTransitionCard({
+    super.key,
+    required this.child,
+    this.index = 0,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final delayMs = (index * 70).clamp(0, 500);
+    return TweenAnimationBuilder<double>(
+      tween: Tween<double>(begin: 0.0, end: 1.0),
+      duration: Duration(milliseconds: 450 + delayMs),
+      curve: Curves.easeOutCubic,
+      builder: (context, val, childWidget) {
+        return Opacity(
+          opacity: val.clamp(0.0, 1.0),
+          child: Transform.translate(
+            offset: Offset(0, 22 * (1 - val)),
+            child: childWidget,
+          ),
+        );
+      },
+      child: child,
+    );
+  }
+}
+
 class MonthlyBarChartWidget extends StatelessWidget {
   final List<MonthlyChartPoint> points;
 
@@ -46,64 +109,90 @@ class MonthlyBarChartWidget extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 20),
-        SizedBox(
-          height: 170,
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: points.map((p) {
-              final incRatio = (p.income / maxVal).clamp(0.04, 1.0);
-              final expRatio = (p.expense / maxVal).clamp(0.04, 1.0);
+        TweenAnimationBuilder<double>(
+          tween: Tween<double>(begin: 0.0, end: 1.0),
+          duration: const Duration(milliseconds: 850),
+          curve: Curves.easeOutBack,
+          builder: (context, animProgress, _) {
+            final safeProgress = animProgress.clamp(0.0, 1.0);
+            return SizedBox(
+              height: 170,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: points.map((p) {
+                  final incRatio = (p.income / maxVal).clamp(0.04, 1.0);
+                  final expRatio = (p.expense / maxVal).clamp(0.04, 1.0);
 
-              return Expanded(
-                child: Tooltip(
-                  message:
-                      '${p.label} ${p.year}\nMasuk: ${CurrencyHelper.formatShortRupiah(p.income)}\nKeluar: ${CurrencyHelper.formatShortRupiah(p.expense)}',
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      Expanded(
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
-                            AnimatedContainer(
-                              duration: const Duration(milliseconds: 400),
-                              width: 12,
-                              height: 130 * (p.income == 0 ? 0.03 : incRatio),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF10B981),
-                                borderRadius: BorderRadius.circular(6),
-                              ),
+                  return Expanded(
+                    child: Tooltip(
+                      message:
+                          '${p.label} ${p.year}\nMasuk: ${CurrencyHelper.formatRupiah(p.income)}\nKeluar: ${CurrencyHelper.formatRupiah(p.expense)}',
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          Expanded(
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                Container(
+                                  width: 12,
+                                  height: 130 *
+                                      (p.income == 0
+                                          ? 0.03
+                                          : incRatio * safeProgress),
+                                  decoration: BoxDecoration(
+                                    gradient: const LinearGradient(
+                                      colors: [
+                                        Color(0xFF34D399),
+                                        Color(0xFF059669)
+                                      ],
+                                      begin: Alignment.topCenter,
+                                      end: Alignment.bottomCenter,
+                                    ),
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                                Container(
+                                  width: 12,
+                                  height: 130 *
+                                      (p.expense == 0
+                                          ? 0.03
+                                          : expRatio * safeProgress),
+                                  decoration: BoxDecoration(
+                                    gradient: const LinearGradient(
+                                      colors: [
+                                        Color(0xFFF87171),
+                                        Color(0xFFDC2626)
+                                      ],
+                                      begin: Alignment.topCenter,
+                                      end: Alignment.bottomCenter,
+                                    ),
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                ),
+                              ],
                             ),
-                            const SizedBox(width: 4),
-                            AnimatedContainer(
-                              duration: const Duration(milliseconds: 400),
-                              width: 12,
-                              height: 130 * (p.expense == 0 ? 0.03 : expRatio),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFEF4444),
-                                borderRadius: BorderRadius.circular(6),
-                              ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            p.label,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF64748B),
                             ),
-                          ],
-                        ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: 8),
-                      Text(
-                        p.label,
-                        style: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: Color(0xFF64748B),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            }).toList(),
-          ),
+                    ),
+                  );
+                }).toList(),
+              ),
+            );
+          },
         ),
       ],
     );
@@ -158,116 +247,125 @@ class CategoryDonutChartWidget extends StatelessWidget {
       );
     }
 
-    return Column(
-      children: [
-        SizedBox(
-          height: 170,
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              CustomPaint(
-                size: const Size(150, 150),
-                painter: _DonutChartPainter(breakdown),
-              ),
-              Column(
-                mainAxisSize: MainAxisSize.min,
+    return TweenAnimationBuilder<double>(
+      tween: Tween<double>(begin: 0.0, end: 1.0),
+      duration: const Duration(milliseconds: 950),
+      curve: Curves.easeOutCubic,
+      builder: (context, progress, _) {
+        return Column(
+          children: [
+            SizedBox(
+              height: 170,
+              child: Stack(
+                alignment: Alignment.center,
                 children: [
-                  const Text(
-                    'Total Keluar',
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: Color(0xFF64748B),
-                    ),
+                  CustomPaint(
+                    size: const Size(150, 150),
+                    painter: _DonutChartPainter(breakdown, progress),
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    CurrencyHelper.formatShortRupiah(totalExpense),
-                    style: const TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF0F172A),
-                    ),
+                  Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text(
+                        'Total Keluar',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Color(0xFF64748B),
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        CurrencyHelper.formatShortRupiah(totalExpense * progress),
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF0F172A),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 16),
-        ...breakdown.map((item) {
-          final color = CurrencyHelper.hexToColor(item.color);
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: Column(
-              children: [
-                Row(
+            ),
+            const SizedBox(height: 16),
+            ...breakdown.map((item) {
+              final color = CurrencyHelper.hexToColor(item.color);
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Column(
                   children: [
-                    Container(
-                      width: 32,
-                      height: 32,
-                      decoration: BoxDecoration(
-                        color: color.withValues(alpha: 0.14),
-                        borderRadius: BorderRadius.circular(9),
-                      ),
-                      child: Icon(
-                        CurrencyHelper.iconFromName(item.icon),
-                        color: color,
-                        size: 17,
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        item.categoryName,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w600,
-                          fontSize: 13.5,
-                          color: Color(0xFF1E293B),
+                    Row(
+                      children: [
+                        Container(
+                          width: 32,
+                          height: 32,
+                          decoration: BoxDecoration(
+                            color: color.withValues(alpha: 0.14),
+                            borderRadius: BorderRadius.circular(9),
+                          ),
+                          child: Icon(
+                            CurrencyHelper.iconFromName(item.icon),
+                            color: color,
+                            size: 17,
+                          ),
                         ),
-                      ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            item.categoryName,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 13.5,
+                              color: Color(0xFF1E293B),
+                            ),
+                          ),
+                        ),
+                        Text(
+                          '${(item.percentage * progress).toStringAsFixed(1)}%',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF64748B),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Text(
+                          CurrencyHelper.formatRupiah(item.amount),
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 13.5,
+                            color: Color(0xFF0F172A),
+                          ),
+                        ),
+                      ],
                     ),
-                    Text(
-                      '${item.percentage.toStringAsFixed(1)}%',
-                      style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: Color(0xFF64748B),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Text(
-                      CurrencyHelper.formatRupiah(item.amount),
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 13.5,
-                        color: Color(0xFF0F172A),
+                    const SizedBox(height: 6),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: LinearProgressIndicator(
+                        value: ((item.percentage / 100.0) * progress)
+                            .clamp(0.0, 1.0),
+                        minHeight: 6,
+                        backgroundColor: const Color(0xFFF1F5F9),
+                        valueColor: AlwaysStoppedAnimation<Color>(color),
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 6),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(4),
-                  child: LinearProgressIndicator(
-                    value: (item.percentage / 100.0).clamp(0.0, 1.0),
-                    minHeight: 6,
-                    backgroundColor: const Color(0xFFF1F5F9),
-                    valueColor: AlwaysStoppedAnimation<Color>(color),
-                  ),
-                ),
-              ],
-            ),
-          );
-        }),
-      ],
+              );
+            }),
+          ],
+        );
+      },
     );
   }
 }
 
 class _DonutChartPainter extends CustomPainter {
   final List<CategoryBreakdown> items;
+  final double progress;
 
-  _DonutChartPainter(this.items);
+  _DonutChartPainter(this.items, this.progress);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -275,23 +373,33 @@ class _DonutChartPainter extends CustomPainter {
     final radius = math.min(size.width, size.height) / 2 - 14;
     final rect = Rect.fromCircle(center: center, radius: radius);
 
+    // Track lingkaran latar belakang
+    final bgPaint = Paint()
+      ..color = const Color(0xFFF1F5F9)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 22;
+    canvas.drawCircle(center, radius, bgPaint);
+
     double startAngle = -math.pi / 2;
     final total = items.fold<double>(0, (sum, item) => sum + item.amount);
     if (total <= 0) return;
 
     for (final item in items) {
-      final sweepAngle = (item.amount / total) * 2 * math.pi;
+      final sweepAngle = (item.amount / total) * 2 * math.pi * progress;
       final paint = Paint()
         ..color = CurrencyHelper.hexToColor(item.color)
         ..style = PaintingStyle.stroke
         ..strokeWidth = 22
         ..strokeCap = StrokeCap.butt;
 
-      canvas.drawArc(rect, startAngle, sweepAngle - 0.03, false, paint);
+      if (sweepAngle > 0.04) {
+        canvas.drawArc(rect, startAngle, sweepAngle - 0.03, false, paint);
+      }
       startAngle += sweepAngle;
     }
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
+  bool shouldRepaint(covariant _DonutChartPainter oldDelegate) =>
+      oldDelegate.progress != progress || oldDelegate.items != items;
 }

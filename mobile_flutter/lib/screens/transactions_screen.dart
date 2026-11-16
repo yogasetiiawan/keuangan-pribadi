@@ -1,7 +1,9 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../models/finance_models.dart';
 import '../services/api_service.dart';
+import '../widgets/charts_widget.dart';
 import 'add_transaction_sheet.dart';
 
 class TransactionsScreen extends StatefulWidget {
@@ -67,13 +69,19 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
   }
 
   Future<void> _deleteTransaction(TransactionModel trx) async {
+    HapticFeedback.mediumImpact();
     try {
       await ApiService.deleteTransaction(trx.id);
       if (!mounted) return;
       await _loadTransactions();
       widget.onChanged();
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Transaksi dihapus')),
+        SnackBar(
+          behavior: SnackBarBehavior.floating,
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          content: const Text('Transaksi dihapus'),
+        ),
       );
     } catch (e) {
       if (!mounted) return;
@@ -129,6 +137,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                   },
                   onValueChanged: (val) {
                     if (val == null) return;
+                    HapticFeedback.selectionClick();
                     setState(() => _filterType = val);
                     _loadTransactions();
                   },
@@ -161,115 +170,126 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                                 (isIncome ? '#10B981' : '#EF4444'),
                           );
 
-                          return Dismissible(
-                            key: ValueKey('trx_${trx.id}'),
-                            direction: DismissDirection.endToStart,
-                            background: Container(
-                              alignment: Alignment.centerRight,
-                              padding: const EdgeInsets.only(right: 20),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFEF4444),
-                                borderRadius: BorderRadius.circular(16),
-                              ),
-                              child: const Icon(CupertinoIcons.trash_fill,
-                                  color: Colors.white),
-                            ),
-                            onDismissed: (_) => _deleteTransaction(trx),
-                            child: InkWell(
-                              onTap: () {
-                                showModalBottomSheet(
-                                  context: context,
-                                  isScrollControlled: true,
-                                  backgroundColor: Colors.transparent,
-                                  builder: (_) => AddTransactionSheet(
-                                    categories: widget.categories,
-                                    existingTransaction: trx,
-                                    onSaved: () {
-                                      _loadTransactions();
-                                      widget.onChanged();
-                                    },
-                                  ),
-                                );
-                              },
-                              borderRadius: BorderRadius.circular(16),
-                              child: Container(
-                                padding: const EdgeInsets.all(14),
+                          return FadeSlideTransitionCard(
+                            index: index,
+                            child: Dismissible(
+                              key: ValueKey('trx_${trx.id}'),
+                              direction: DismissDirection.endToStart,
+                              background: Container(
+                                alignment: Alignment.centerRight,
+                                padding: const EdgeInsets.only(right: 20),
                                 decoration: BoxDecoration(
-                                  color: Colors.white,
+                                  color: const Color(0xFFEF4444),
                                   borderRadius: BorderRadius.circular(16),
-                                  border: Border.all(
-                                      color: const Color(0xFFE2E8F0)),
                                 ),
-                                child: Row(
-                                  children: [
-                                    Container(
-                                      width: 44,
-                                      height: 44,
-                                      decoration: BoxDecoration(
-                                        color: catColor.withValues(alpha: 0.12),
-                                        borderRadius: BorderRadius.circular(12),
-                                      ),
-                                      child: Icon(
-                                        CurrencyHelper.iconFromName(
-                                            trx.category?.icon ?? 'category'),
-                                        color: catColor,
-                                        size: 21,
-                                      ),
+                                child: const Icon(CupertinoIcons.trash_fill,
+                                    color: Colors.white),
+                              ),
+                              onDismissed: (_) => _deleteTransaction(trx),
+                              child: InkWell(
+                                onTap: () {
+                                  HapticFeedback.selectionClick();
+                                  showModalBottomSheet(
+                                    context: context,
+                                    isScrollControlled: true,
+                                    backgroundColor: Colors.transparent,
+                                    builder: (_) => AddTransactionSheet(
+                                      categories: widget.categories,
+                                      existingTransaction: trx,
+                                      onSaved: () {
+                                        _loadTransactions();
+                                        widget.onChanged();
+                                      },
                                     ),
-                                    const SizedBox(width: 12),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            trx.description.isNotEmpty
-                                                ? trx.description
-                                                : (trx.category?.name ??
-                                                    'Transaksi'),
-                                            style: const TextStyle(
-                                              fontWeight: FontWeight.w700,
-                                              fontSize: 14.5,
-                                              color: Color(0xFF0F172A),
+                                  );
+                                },
+                                borderRadius: BorderRadius.circular(16),
+                                child: Container(
+                                  padding: const EdgeInsets.all(14),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(16),
+                                    border: Border.all(
+                                        color: const Color(0xFFE2E8F0)),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Container(
+                                        width: 44,
+                                        height: 44,
+                                        decoration: BoxDecoration(
+                                          color:
+                                              catColor.withValues(alpha: 0.12),
+                                          borderRadius:
+                                              BorderRadius.circular(12),
+                                        ),
+                                        child: Icon(
+                                          CurrencyHelper.iconFromName(
+                                              trx.category?.icon ?? 'category'),
+                                          color: catColor,
+                                          size: 21,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              trx.description.isNotEmpty
+                                                  ? trx.description
+                                                  : (trx.category?.name ??
+                                                      'Transaksi'),
+                                              style: const TextStyle(
+                                                fontWeight: FontWeight.w700,
+                                                fontSize: 14.5,
+                                                color: Color(0xFF0F172A),
+                                              ),
                                             ),
-                                          ),
-                                          const SizedBox(height: 3),
-                                          Row(
-                                            children: [
-                                              Text(
-                                                '${trx.category?.name ?? "Lainnya"} • ${trx.transactionDate}',
-                                                style: const TextStyle(
-                                                  fontSize: 12,
-                                                  color: Color(0xFF64748B),
+                                            const SizedBox(height: 3),
+                                            Row(
+                                              children: [
+                                                Flexible(
+                                                  child: Text(
+                                                    '${trx.category?.name ?? "Lainnya"} • ${CurrencyHelper.formatIndonesianDate(trx.transactionDate)}',
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                    style: const TextStyle(
+                                                      fontSize: 12,
+                                                      color: Color(0xFF64748B),
+                                                    ),
+                                                  ),
                                                 ),
-                                              ),
-                                              const SizedBox(width: 6),
-                                              Icon(
-                                                trx.isSyncedToSheet
-                                                    ? CupertinoIcons
-                                                        .checkmark_seal_fill
-                                                    : CupertinoIcons.clock,
-                                                size: 13,
-                                                color: trx.isSyncedToSheet
-                                                    ? const Color(0xFF10B981)
-                                                    : const Color(0xFF94A3B8),
-                                              ),
-                                            ],
-                                          ),
-                                        ],
+                                                const SizedBox(width: 6),
+                                                Icon(
+                                                  trx.isSyncedToSheet
+                                                      ? CupertinoIcons
+                                                          .checkmark_seal_fill
+                                                      : CupertinoIcons.clock,
+                                                  size: 13,
+                                                  color: trx.isSyncedToSheet
+                                                      ? const Color(0xFF10B981)
+                                                      : const Color(0xFF94A3B8),
+                                                ),
+                                              ],
+                                            ),
+                                          ],
+                                        ),
                                       ),
-                                    ),
-                                    Text(
-                                      '${isIncome ? "+" : "-"}${CurrencyHelper.formatRupiah(trx.amount)}',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.w800,
-                                        fontSize: 14.5,
-                                        color: isIncome
-                                            ? const Color(0xFF10B981)
-                                            : const Color(0xFFEF4444),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        '${isIncome ? "+" : "-"}${CurrencyHelper.formatRupiah(trx.amount)}',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w800,
+                                          fontSize: 14.5,
+                                          color: isIncome
+                                              ? const Color(0xFF10B981)
+                                              : const Color(0xFFEF4444),
+                                        ),
                                       ),
-                                    ),
-                                  ],
+                                    ],
+                                  ),
                                 ),
                               ),
                             ),

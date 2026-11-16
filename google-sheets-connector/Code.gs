@@ -78,6 +78,24 @@ function doPost(e) {
   try {
     const payload = JSON.parse(e.postData.contents);
     const action = payload.action || 'upsert';
+
+    if (action === 'send_otp' && payload.email && payload.otp) {
+      MailApp.sendEmail({
+        to: payload.email,
+        subject: '🔐 Kode OTP Keamanan KeuanganKu: ' + payload.otp,
+        htmlBody:
+          '<div style="font-family:Arial,sans-serif;max-width:460px;margin:0 auto;padding:24px;border-radius:16px;background:#0F172A;color:#FFFFFF;">' +
+          '<h2 style="margin-top:0;color:#34D399;">KeuanganKu Security</h2>' +
+          '<p style="color:#CBD5E1;font-size:14px;">Halo <b>' + (payload.name || 'Pengguna') + '</b>, gunakan 6 digit kode OTP berikut untuk masuk ke akun KeuanganKu Anda:</p>' +
+          '<div style="background:#1E293B;padding:16px;border-radius:12px;text-align:center;font-size:28px;font-weight:bold;letter-spacing:8px;color:#38BDF8;margin:20px 0;">' +
+          payload.otp +
+          '</div>' +
+          '<p style="color:#94A3B8;font-size:12px;">Kode ini berlaku selama 5 menit. Jangan berikan kode ini kepada siapa pun.</p>' +
+          '</div>'
+      });
+      return jsonResponse({ success: true, message: 'Kode OTP berhasil dikirim ke email ' + payload.email });
+    }
+
     const { sheetTrx } = setupSheets();
 
     if (action === 'sync_all' && Array.isArray(payload.transactions)) {

@@ -70,13 +70,11 @@ class ApiService {
         {
           'id': 'user_1',
           'name': 'Yoga Setiawan',
-          'email': 'yoga@keuanganku.id',
+          'email': 'yogasetiawan1499@gmail.com',
           'password': '123456',
         }
       ];
       await prefs.setString(_prefAccountsListKey, jsonEncode(defaultAccounts));
-      // Secara default langsung aktifkan user_1 agar tidak mengganggu pengalaman awal
-      await prefs.setString(_prefActiveUserIdKey, 'user_1');
     }
   }
 
@@ -90,27 +88,91 @@ class ApiService {
         .toList();
   }
 
-  static Future<UserAccountModel> login({
+  static Future<UserAccountModel> verifyCredentialsForOtp({
     required String email,
     required String password,
   }) async {
-    final prefs = await SharedPreferences.getInstance();
     final accounts = await getAllAccounts();
     final cleanEmail = email.trim().toLowerCase();
 
     final match = accounts.where((a) {
       return (a.email.toLowerCase() == cleanEmail ||
-              a.name.toLowerCase() == cleanEmail) &&
+              a.name.toLowerCase() == cleanEmail ||
+              (a.id == 'user_1' && cleanEmail == 'yoga@keuanganku.id')) &&
           a.password == password;
     }).firstOrNull;
 
     if (match == null) {
       throw Exception('Email/Nama atau Password tidak sesuai');
     }
+    return match;
+  }
 
-    _currentUser = match;
-    await prefs.setString(_prefActiveUserIdKey, match.id);
+  static Future<UserAccountModel> findOrCreateGoogleAccount({
+    required String email,
+    required String name,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    final accounts = await getAllAccounts();
+    final cleanEmail = email.trim().toLowerCase();
+
+    final existing = accounts
+        .where((a) => a.email.toLowerCase() == cleanEmail)
+        .firstOrNull;
+    if (existing != null) {
+      return existing;
+    }
+
+    final newId = (cleanEmail == 'yogasetiawan1499@gmail.com')
+        ? 'user_1'
+        : 'user_${DateTime.now().millisecondsSinceEpoch}';
+    final newUser = UserAccountModel(
+      id: newId,
+      name: name.trim().isNotEmpty ? name.trim() : cleanEmail.split('@').first,
+      email: cleanEmail,
+      password: 'google_oauth_user',
+    );
+
+    accounts.add(newUser);
+    await prefs.setString(
+      _prefAccountsListKey,
+      jsonEncode(accounts.map((a) => a.toJson()).toList()),
+    );
+    return newUser;
+  }
+
+  static Future<void> completeAuthenticatedSession(UserAccountModel user) async {
+    final prefs = await SharedPreferences.getInstance();
+    _currentUser = user;
+    await prefs.setString(_prefActiveUserIdKey, user.id);
     await _ensureLocalSeed(prefs);
+  }
+
+  static Future<bool> sendOtpEmail({
+    required String email,
+    required String name,
+    required String otpCode,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    final webhookUrl = prefs.getString('local_gsheets_webhook_url') ??
+        prefs.getString(_webhookUrlKey) ??
+        '';
+    if (webhookUrl.trim().isEmpty) return false;
+
+    return _pushDirectToWebhook(webhookUrl, {
+      'action': 'send_otp',
+      'email': email.trim(),
+      'name': name.trim(),
+      'otp': otpCode,
+    });
+  }
+
+  static Future<UserAccountModel> login({
+    required String email,
+    required String password,
+  }) async {
+    final match = await verifyCredentialsForOtp(email: email, password: password);
+    await completeAuthenticatedSession(match);
     return match;
   }
 
